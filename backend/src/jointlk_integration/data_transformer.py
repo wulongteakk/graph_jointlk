@@ -9,18 +9,50 @@ class GraphDataTransformer:
     负责将从 Neo4j 检索到的动态子图数据转换为 JointLK 模型所需的张量格式。
     """
 
-    def __init__(self, tokenizer: Callable, max_seq_len: int = 128):
+    def __init__(
+            self,
+            tokenizer: Callable,
+            cpnet_vocab_path: str,  # 新增：概念词汇表路径（与仓库一致）
+            max_seq_len: int = 128,
+            max_node_num: int = 200
+    ):
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
+        self.max_node_num = max_node_num  # 与模型max_node_num一致
+
+        # 加载仓库的concept2id（核心修改）
+        self.concept2id, self.id2concept = self._load_concept_vocab(cpnet_vocab_path)
+
+        # 加载仓库的relation2id（基于merged_relations）
+        from JointLK.utils.conceptnet import merged_relations
+        self.relation2id = {r: i for i, r in enumerate(merged_relations)}
+        self.merged_relations = merged_relations
         self.relation_name_to_id = {}  # 动态映射关系类型到整数ID
         self.relation_id_counter = 0
+    def _load_concept_vocab(self, cpnet_vocab_path: str) -> (Dict[str, int], List[str]):
+        """复用仓库逻辑：从词汇表文件加载concept2id映射"""
+        with open(cpnet_vocab_path, "r", encoding="utf8") as fin:
+            id2concept = [w.strip() for w in fin]
+        concept2id = {w: i for i, w in enumerate(id2concept)}
+        return concept2id, id2concept
 
-    def map_relation_type(self, relation_name: str) -> int:
-        """为关系类型字符串分配一个唯一的整数ID。"""
-        if relation_name not in self.relation_name_to_id:
-            self.relation_name_to_id[relation_name] = self.relation_id_counter
-            self.relation_id_counter += 1
-        return self.relation_name_to_id[relation_name]
+    def get_concept_id(self, node_text: str) -> int:
+
+
+        # 移除词性后缀（复用仓库del_pos函数）
+        processed_text = del_pos(node_text)
+
+        # 提取最后一个 '/' 后的内容（处理类似'/c/en/xxx'的格式）
+        processed_text = processed_text.split("/")[-1].lower()
+
+        # ：检查是否符合概念格式（仅含字母，允许下划线和连字符）
+        # 替换下划线和连字符后必须全为字母
+        cleaned = re.sub(r"[_-]", "", processed_text)
+        if not cleaned.isalpha():
+            return -1  # 不符合格式的概念不收录
+
+        # 步骤4：映射到concept2id
+        return self.concept2id.get(processed_text, -1)
 
     def format_for_jointlk(
             self,
@@ -92,7 +124,6 @@ class GraphDataTransformer:
         context_string = " ".join(set(local_index_to_node_text))
         input_text = f"{question} [SEP] {context_string}"
 
-
         inputs = self.tokenizer(
             input_text,
             max_length=self.max_seq_len,
@@ -115,3 +146,11 @@ class GraphDataTransformer:
         }
         logging.info(f"Transformation complete. Processed relations map: {self.relation_name_to_id}")
         return result_batch
+
+    def map_relation_type(self, relation_name: str) -> int:
+        """为关系类型字符串分配一个唯一的整数ID。"""
+        if relation_name not in self.relation_name_to_id:
+            self.relation_name_to_id[relation_name] = self.relation_id_counter
+            self.relation_id_counter += 1
+        return self.relation_name_to_id[relation_name]
+

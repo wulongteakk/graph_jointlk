@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from fastapi.middleware.gzip import GZipMiddleware
 import time
 import gc
+from collections import defaultdict, deque
 
 logger = CustomLogger()
 CHUNK_DIR = os.path.join(os.path.dirname(__file__), "chunks")
@@ -314,19 +315,29 @@ async def post_processing(uri=Form(None), userName=Form(None), password=Form(Non
 
 @app.post("/chat_bot")
 async def chat_bot(uri=Form(None), model=Form(None), userName=Form(None), password=Form(None), database=Form(None),
-                   question=Form(None), document_names=Form(None), session_id=Form(None), mode=Form(None), use_jointlk: bool = Form(False)):
-    logging.info(f"QA_RAG called at {datetime.now()} with use_jointlk={use_jointlk}")
+                   question=Form(None), document_names=Form(None), session_id=Form(None), mode=Form(None), use_jointlk: bool = Form(True)):
+    print("score use_jointlk is", use_jointlk)
+    print("mode is", mode)
+    use_jointlk = True
+    mode = "graph"
     qa_rag_start_time = time.time()
+    subgraph_result = get_graph_results(
+        uri,
+        userName,
+        password,
+        document_names
+    )
+
+
     try:
-
-
         if mode == "graph":
             graph = Neo4jGraph(url=uri, username=userName, password=password, database=database, sanitize=True,
                                refresh_schema=True)
         else:
             graph = create_graph_database_connection(uri, userName, password, database)
+        print("question is", graph)
         result = await asyncio.to_thread(QA_RAG, graph=graph, model=model, question=question,
-                                         document_names=document_names, session_id=session_id, mode=mode, use_jointlk=use_jointlk)
+                                         document_names=document_names, session_id=session_id, mode=mode, use_jointlk=use_jointlk, subgraph_result=subgraph_result)
 
         total_call_time = time.time() - qa_rag_start_time
         logging.info(f"Total Response time is  {total_call_time:.2f} seconds")
@@ -365,7 +376,6 @@ async def chunk_entities(uri=Form(None), userName=Form(None), password=Form(None
     finally:
         gc.collect()
 
-
 @app.post("/graph_query")
 async def graph_query(
         uri: str = Form(None),
@@ -382,6 +392,7 @@ async def graph_query(
             password=password,
             document_names=document_names
         )
+
         josn_obj = {'api_name': 'graph_query', 'db_url': uri, 'document_names': document_names,
                     'logging_time': formatted_time(datetime.now(timezone.utc))}
         logger.log_struct(josn_obj)
@@ -394,6 +405,7 @@ async def graph_query(
         return create_api_response(job_status, message=message, error=error_message)
     finally:
         gc.collect()
+
 
 
 @app.post("/clear_chat_bot")

@@ -38,6 +38,10 @@ class MultiGPUSparseAdjDataBatchGenerator(object):
     def __iter__(self):
         bs = self.batch_size
         n = self.indexes.size(0)
+        return (self.indexes.size(0) - 1) // self.batch_size + 1
+
+    def __iter__(self):
+        bs = self.batch_size
         if self.mode=='train' and self.args.drop_partial_batch:
             print ('dropping partial batch')
             n = (n//bs) *bs

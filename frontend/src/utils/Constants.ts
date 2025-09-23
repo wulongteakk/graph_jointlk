@@ -136,7 +136,7 @@ export const tooltips = {
 
 export const buttonCaptions = {
   exploreGraphWithBloom: 'Explore Graph with Bloom',
-  showPreviewGraph: 'Preview Graph',
+  showPreviewGraph: 'Graph Construction',
   deleteFiles: 'Delete Files',
   generateGraph: 'Generate Graph',
   dropzoneSpan: 'Documents, Images, Unstructured text',
@@ -155,6 +155,8 @@ export const buttonCaptions = {
   continueSettings: 'Continue',
   clearSettings: 'Clear Settings',
   ask: 'Ask',
+  jointLK:'JointLK',
+  JointlkReasoningprocess:"Alignment Relationship"
 };
 
 export const taskParam: string[] = ['update_similarity_graph', 'create_fulltext_index', 'create_entity_embedding'];
@@ -191,3 +193,8 @@ export const appLabels = {
   ownSchema: 'Or Define your own Schema',
   predefinedSchema: 'Select a Pre-defined Schema',
 };
+export const JointlkView: OptionType[] = [
+  { label: 'Graph layout scale', value: queryMap.DocChunks },
+  { label: 'Confidence score', value: queryMap.Entities },
+  { label: 'Alignment relationship', value: queryMap.DocChunkEntities },
+];

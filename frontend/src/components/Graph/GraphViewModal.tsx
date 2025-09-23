@@ -283,7 +283,7 @@ const GraphViewModal: React.FunctionComponent<GraphViewModalProps> = ({
                 options={graphView}
                 placeholder='Select Graph Type'
                 defaultValue={getDropdownDefaultValue()}
-                view='GraphView'
+                view='GraphViewModal.tsx'
                 isDisabled={loading}
                 value={dropdownVal}
               />

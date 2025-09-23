@@ -23,6 +23,7 @@ import ButtonWithToolTip from '../UI/ButtonWithToolTip';
 const Chatbot: React.FC<ChatbotProps> = (props) => {
   const { messages: listMessages, setMessages: setListMessages, isLoading, isFullScreen, clear } = props;
   const [inputMessage, setInputMessage] = useState('');
+  const [use_jointlk, setUse_Jointlk] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(isLoading);
   const { userCredentials } = useCredentials();
   const { model, chatMode, selectedRows, filesData } = useFileContext();
@@ -171,7 +172,8 @@ const Chatbot: React.FC<ChatbotProps> = (props) => {
         sessionId,
         model,
         chatMode,
-        selectedFileNames?.map((f) => f.name)
+        selectedFileNames?.map((f) => f.name),
+        use_jointlk,
       );
       const chatresponse = chatbotAPI?.response;
       chatbotReply = chatresponse?.data?.data?.message;
@@ -402,10 +404,20 @@ const Chatbot: React.FC<ChatbotProps> = (props) => {
             fluid
             onChange={handleInputChange}
           />
+
           <Button type='submit' disabled={loading} size='medium'>
             {buttonCaptions.ask} {selectedRows != undefined && selectedRows.length > 0 && `(${selectedRows.length})`}
           </Button>
+
         </form>
+        <Button
+        type='JointLK_Enhanced'
+        disabled={loading} size='medium'
+        onClick={() => setUse_Jointlk(!use_jointlk)}
+        color={use_jointlk ? 'danger' : 'primary'}
+        style={{ marginRight: '8px' }} >
+        JointLK
+        </Button>
       </div>
       <Modal
         modalProps={{

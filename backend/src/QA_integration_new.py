@@ -7,7 +7,7 @@ from langchain_community.chat_message_histories import Neo4jChatMessageHistory
 from src.llm import get_llm
 from src.shared.common_fn import load_embedding_model
 from src.graph_query import extract_node_elements, extract_relationships,process_node
-from src.jointlk_integration.service_manager import jointlk_facade
+
 from typing import Annotated, Dict
 from typing import Any
 from datetime import datetime
@@ -25,6 +25,16 @@ from src.shared.constants import *
 from src.llm import get_llm
 from langchain.chains import GraphCypherQAChain
 import json
+
+try:
+    from src.qagnn_scorer import prune_and_score_nodes
+    QAGNN_SCORER_ENABLED=True
+except ImportError as e:
+    logging.warning(f"************************************************************")
+    logging.warning(f"QAGNN scorer module import failed: {e}. ")
+    logging.warning("Dynamic pruning will be DISABLED.")
+    logging.warning(f"************************************************************")
+    QAGNN_SCORER_ENABLED = False
 
 ## Chat models
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
@@ -269,7 +279,7 @@ def summarize_and_log(history, messages, llm):
 
 def create_graph_chain(model, graph):
     try:
-        logging.info(f"Graph QA Chain using LLM model: {model}")
+        print(f"Graph QA Chain using LLM model: {model}")
 
         cypher_llm,model_name = get_llm(model)
         qa_llm,model_name = get_llm(model)
@@ -283,7 +293,7 @@ def create_graph_chain(model, graph):
             top_k=3
         )
 
-        logging.info("GraphCypherQAChain instance created successfully.")
+        print("GraphCypherQAChain instance created successfully.")
         return graph_chain,qa_llm,model_name
 
     except Exception as e:
@@ -292,6 +302,7 @@ def create_graph_chain(model, graph):
 
 def get_graph_response(graph_chain, question):
     try:
+        print("question 1", question)
         cypher_res = graph_chain.invoke({"query": question})
 
         response = cypher_res.get("result")
@@ -303,6 +314,7 @@ def get_graph_response(graph_chain, question):
         entities = []
         relationships = []
         for step in cypher_res.get("intermediate_steps", []):
+            print("step is ", step)
             if "query" in step:
                 cypher_string = step["query"]
                 cypher_query = cypher_string.replace("cypher\n", "").replace("\n", " ").strip()
@@ -325,33 +337,104 @@ def get_graph_response(graph_chain, question):
     except Exception as e:
         logging.error("An error occurred while getting the graph response : {e}")
 
-def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk):
+def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, include_visualization: bool = False, subgraph_result=None):
     try:
+
         logging.info(f"Chat Mode : {mode}")
         history = create_neo4j_chat_message_history(graph, session_id)
         messages = history.messages
         user_question = HumanMessage(content=question)
         messages.append(user_question)
+        logging.info(f"Received mode: {mode}, Received use_jointlk: {use_jointlk}, include_visualization: {include_visualization}")
+        use_jointlk=True
+        if isinstance(use_jointlk, str):
+            use_jointlk_bool = use_jointlk.lower() == 'true'
+        else:
+            use_jointlk_bool = bool(use_jointlk)
+
+        visualization_data = None
 
         if mode == "graph":
+            print("gogogo")
             graph_chain, qa_llm,model_version = create_graph_chain(model,graph)
+            print("question 1", question)
             graph_response = get_graph_response(graph_chain,question)
-            nodes_raw=graph_response["entities"]
-            rels_raw=graph_response["relationships"]
-            logging.info(f"Subgraph retrieved: {len(nodes_raw)} nodes, {len(rels_raw)} relationships.")
-            if use_jointlk:
-                # 仅当子图不为空且 JointLK 服务可用时执行
-                if jointlk_facade and nodes_raw:
-                    logging.info("Step B: Routing to JointLK enhancement service.")
-
-                #  调用推理流程
-
-                    jointlk_result = jointlk_facade.process_query(question, nodes_raw, rels_raw)
-                # 格式化 JointLK 的输出以匹配前端期望
-                    ai_response = AIMessage(content=jointlk_result.get("answer")) if jointlk_result and jointlk_result.get("answer") else AIMessage(content="No answer from JointLK.")
+            original_context = graph_response.get("context", [])
+            cypher_query = graph_response.get("cypher_query", "")
+            original_nodes = subgraph_result.get("nodes", [])
+            original_relationships = subgraph_result.get("relationships", [])
+            logging.info(f"Subgraph retrieved: {len(original_nodes)} nodes, {len(original_relationships)} relationships.")
+            final_context = original_context
+            pruned_nodes = original_nodes
+            pruned_relationships = original_relationships
+            retained_node_names_set = set(e.get('name') for e in original_nodes)
 
 
+            if use_jointlk_bool:
+                print("let me know use_jointlk")
+                try:
+                    # 'top_k' 是一个可调参数。
+                    # 设为 0 或 负数 则只排序不剪枝。
+                    retained_node_names_set = prune_and_score_nodes(
+                        nodes_list=original_nodes,
+                        question=question,
+                        top_k=20  # 您可以调整这个K值
+                    )
+
+
+
+
+                    pruned_nodes = [e for e in original_nodes if e.get('name') in retained_node_names_set]
+
+                    retained_node_ids = set(e.get('id') for e in pruned_nodes)
+
+                    pruned_relationships = [
+                        r for r in original_relationships
+                        if r.get('startNode') in retained_node_ids and r.get('endNode') in retained_node_ids
+                    ]
+                    logging.info(
+                        f"[QAGNN Pruning] Pruned visualization: {len(pruned_nodes)} nodes, {len(pruned_relationships)} rels")
+
+                except Exception as e:
+                    logging.error(f"[QAGNN Pruning] Error during pruning: {e}. Falling back to original context.")
+
+                    retained_node_names_set = set(e.get('name') for e in original_nodes)
+                    pruned_nodes= original_nodes
+                    pruned_relationships = original_relationships
+                print(f"pruned_nodes :{pruned_nodes}")
+                print(f"pruned_relationships :{pruned_relationships}")
+
+                QA_PROMPT_TEMPLATE = """
+                            You are an assistant that helps to form nice and human-readable answers.
+                            The information part contains the provided information that you must use to construct an answer.
+                            The provided information is authoritative, you must use it.
+                            You must determine if the information is sufficient to answer the question.
+                            When the information is sufficient, summarize it and answer the question.
+                            If the information is insufficient, say that you cannot answer the question.
+                            Do not make up information.
+                            Do not add any information that is not in the provided information.
+
+                            Information:
+                            {context}
+
+                            Question: {question}
+                            Helpful Answer:
+                            """
+
+                qa_prompt = ChatPromptTemplate.from_template(QA_PROMPT_TEMPLATE)
+
+                logging.info("Invoking final QA_LLM with pruned context...")
+
+                final_answer_chain = qa_prompt | qa_llm | StrOutputParser()
+
+                final_response = final_answer_chain.invoke({
+                    "context": json.dumps(final_context),  # 确保 context 是字符串
+                    "question": question
+                })
+
+                ai_response = AIMessage(content=final_response)
             else:
+                print("QAGNN Scorer is disabled. Skipping pruning.")
                 ai_response = AIMessage(content=graph_response["response"]) if graph_response[
                     "response"] else AIMessage(content="Something went wrong")
 
@@ -366,9 +449,10 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk):
                 "info": {
                     "model": model_version,
                     'cypher_query':graph_response["cypher_query"],
-                    "context" : graph_response["context"],
+                    "context" : final_context,
                     "mode" : mode,
-                    "response_time": 0
+                    "response_time": 0,
+                    "visualization_data": visualization_data
                 },
                 "user": "chatbot"
             }
@@ -402,7 +486,8 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk):
                 "chunkdetails": result["chunkdetails"],
                 "total_tokens": total_tokens,
                 "response_time": 0,
-                "mode": mode
+                "mode": mode,
+                "visualization_data": None
             },
             "user": "chatbot"
         }
@@ -417,7 +502,8 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk):
                 "sources": [],
                 "chunkids": [],
                 "error": f"{error_name} :- {str(e)}",
-                "mode": mode
+                "mode": mode,
+                "visualization_data": None
             },
             "user": "chatbot"
         }

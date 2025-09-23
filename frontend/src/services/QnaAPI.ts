@@ -8,7 +8,10 @@ export const chatBotAPI = async (
   session_id: string,
   model: string,
   mode: string,
-  document_names?: (string | undefined)[]
+  document_names?: (string | undefined)[],
+  use_jointlk?:boolean,
+
+
 ) => {
   try {
     const formData = new FormData();
@@ -21,6 +24,9 @@ export const chatBotAPI = async (
     formData.append('model', model);
     formData.append('mode', mode);
     formData.append('document_names', JSON.stringify(document_names));
+    if (use_jointlk !== undefined) {
+      formData.append('use_jointlk', String(use_jointlk));
+    }
     const startTime = Date.now();
     const response = await axios.post(`${url()}/chat_bot`, formData, {
       headers: {
