@@ -132,14 +132,16 @@ def get_LM_score_for_nodes(node_names: List[str], question: str) -> 'OrderedDict
 # --- 4. 我们的主包装函数，将用于 "仓库1" (QA_integration_new.py) ---
 def prune_and_score_nodes(
         nodes_list: List[Dict[str, Any]],
+
         question: str,
         top_k: int = 15
 ) -> Set[str]:
     """
 
     Args:
-        nodes_list: 从 get_graph_response 提取的实体列表
-                       e.g., [{'element_id': ..., 'labels': ['User'], 'properties': {'id': ''}}, ...]
+        nodes_list: 提取的实体列表
+
+
         question: 用户的原始问题.
         top_k: 保留得分最高的 k 个节点。
                设置为 0 或 负数 则不剪枝。
@@ -151,49 +153,51 @@ def prune_and_score_nodes(
     if not nodes_list or not QAGNN_SCORER_ENABLED:
         if not QAGNN_SCORER_ENABLED:
             log.warning("QAGNN Scorer is disabled, returning all original nodes.")
-        # 返回所有节点名称
-        all_node_names = set()
-        for entity in nodes_list:
-            props = entity.get('properties', {})
-            # 修正：同时检查 'id' 和 'name'，并优先使用 'id'
-            node_name = props.get('id', props.get('name'))
-            if node_name:
-                all_node_names.add(node_name)
-        return all_node_names
+        retained_names = set(e.get('properties', {}).get('id', e.get('properties', {}).get('name')) for e in nodes_list)
+        retained_ids = set(e.get('element_id') for e in nodes_list)
+        return retained_names,retained_ids
+    log.info(f"[QAGNN Scorer] Pruning {len(nodes_list)} entities...")
 
-    log.info(f"[QAGNN Scorer] Pruning ndoes list with {len(nodes_list)} items...")
 
-    # 1. 从 'entities' 列表中提取所有唯一的节点名称
-    #    *** 这是关键的修正 ***
     all_nodes_names = set()
+    nodes_to_score = {}  # 存储 {name: element_id}
     for entity in nodes_list:
         props = entity.get('properties', {})
-        # 修正：同时检查 'id' 和 'name'，并优先使用 'id'
-        # 根据您的日志, 属性键是 'id'
         node_name = props.get('id', props.get('name'))
-
+        element_id = entity.get('element_id')
         # 针对 Document 节点的特殊处理
         if not node_name and 'Document' in entity.get('labels', []):
             node_name = props.get('fileName')
 
-        if node_name:
+        if node_name and element_id:
+            # 我们只对第一个遇到的同名节点评分（假设名称是唯一的）
+            if node_name not in nodes_to_score:
+                 nodes_to_score[node_name] = element_id
             all_nodes_names.add(node_name)
-
-    if not all_nodes_names:
-        log.warning("[QAGNN Scorer] No nodes with 'id' or 'name' property found in entities list. Returning all.")
-        return set()  # 返回空集合，后续逻辑会处理
+    if not nodes_to_score:
+        log.warning("[QAGNN Scorer] No nodes with 'id' or 'name' property found in entities list. Returning original.")
+        retained_names = set(e.get('properties', {}).get('id', e.get('properties', {}).get('name')) for e in nodes_list)
+        retained_ids = set(e.get('element_id') for e in nodes_list)
+        return retained_names, retained_ids
 
     node_names_list = list(all_nodes_names)
+    print(f'node_names_list: {node_names_list}')
+
     log.debug(f"[QAGNN Scorer] Found {len(node_names_list)} unique nodes to score.")
 
     # 2. 调用 QAGNN 评分器
     try:
         node_scores: 'OrderedDict[str, float]' = get_LM_score_for_nodes(node_names_list, question)
+        print(f'node_scores: {node_scores}')
     except Exception as e:
         log.error(f"[QAGNN Scorer] Error during node scoring: {e}")
-        return all_nodes_names  # 评分失败，返回所有节点
+        # 评分失败，返回所有原始节点
+        retained_names = set(
+            e.get('properties', {}).get('id', e.get('properties', {}).get('name')) for e in node_names_list)
+        retained_ids = set(e.get('element_id') for e in node_names_list)
+        return retained_names, retained_ids
 
-    # 3. 确定要保留的节点
+    # 3. 确定要保留的节点名称
     retained_node_names_set: Set[str]
     if top_k > 0 and len(node_scores) > top_k:
         retained_node_names_set = set(list(node_scores.keys())[:top_k])
@@ -203,4 +207,13 @@ def prune_and_score_nodes(
         retained_node_names_set = set(node_scores.keys())
         log.info(f"[QAGNN Scorer] Retaining all {len(retained_node_names_set)} scored nodes (top_k <= 0).")
 
-    return retained_node_names_set
+    # 4. 映射回 element_id
+    retained_node_ids_set: Set[str] = set()
+    for name in retained_node_names_set:
+        if name in nodes_to_score:
+            retained_node_ids_set.add(nodes_to_score[name])
+
+    log.info(f"[QAGNN Scorer] Pruning complete. Retaining {len(retained_node_names_set)} nodes.")
+
+    # --- 修改点 4: 返回两个集合 ---
+    return retained_node_names_set, retained_node_ids_set

@@ -363,34 +363,29 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, 
             cypher_query = graph_response.get("cypher_query", "")
             original_nodes = subgraph_result.get("nodes", [])
             original_relationships = subgraph_result.get("relationships", [])
-            logging.info(f"Subgraph retrieved: {len(original_nodes)} nodes, {len(original_relationships)} relationships.")
+            print(f'original_relationships: {original_relationships}')
             final_context = original_context
-            pruned_nodes = original_nodes
-            pruned_relationships = original_relationships
-            retained_node_names_set = set(e.get('name') for e in original_nodes)
-
 
             if use_jointlk_bool:
                 print("let me know use_jointlk")
                 try:
                     # 'top_k' 是一个可调参数。
                     # 设为 0 或 负数 则只排序不剪枝。
-                    retained_node_names_set = prune_and_score_nodes(
+                    retained_node_names_set,retained_node_ids_set = prune_and_score_nodes(
                         nodes_list=original_nodes,
                         question=question,
                         top_k=20  # 您可以调整这个K值
                     )
+                    pruned_nodes = [
+                        e for e in original_nodes
+                        if e.get('element_id') in retained_node_ids_set
+                    ]
 
-
-
-
-                    pruned_nodes = [e for e in original_nodes if e.get('name') in retained_node_names_set]
-
-                    retained_node_ids = set(e.get('id') for e in pruned_nodes)
+                    print(f'retained_node_ids_set: {retained_node_ids_set}')
 
                     pruned_relationships = [
                         r for r in original_relationships
-                        if r.get('startNode') in retained_node_ids and r.get('endNode') in retained_node_ids
+                        if r.get('start_node_element_id') in retained_node_ids_set and r.get('end_node_element_id') in retained_node_ids_set
                     ]
                     logging.info(
                         f"[QAGNN Pruning] Pruned visualization: {len(pruned_nodes)} nodes, {len(pruned_relationships)} rels")
@@ -403,6 +398,11 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, 
                     pruned_relationships = original_relationships
                 print(f"pruned_nodes :{pruned_nodes}")
                 print(f"pruned_relationships :{pruned_relationships}")
+
+                final_context_graph= {
+                    "nodes": pruned_nodes,
+                    "relationships": pruned_relationships
+                }
 
                 QA_PROMPT_TEMPLATE = """
                             You are an assistant that helps to form nice and human-readable answers.
@@ -428,13 +428,16 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, 
                 final_answer_chain = qa_prompt | qa_llm | StrOutputParser()
 
                 final_response = final_answer_chain.invoke({
-                    "context": json.dumps(final_context),  # 确保 context 是字符串
+                    "context": json.dumps(final_context_graph, ensure_ascii=False),
                     "question": question
                 })
 
+                print(f'final_response: {final_response}')
                 ai_response = AIMessage(content=final_response)
+                message_response = final_response
             else:
                 print("QAGNN Scorer is disabled. Skipping pruning.")
+                message_response= graph_response["response"]
                 ai_response = AIMessage(content=graph_response["response"]) if graph_response[
                     "response"] else AIMessage(content="Something went wrong")
 
@@ -445,7 +448,7 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, 
 
             result = {
                 "session_id": session_id,
-                "message": graph_response["response"],
+                "message": message_response,
                 "info": {
                     "model": model_version,
                     'cypher_query':graph_response["cypher_query"],
@@ -465,7 +468,7 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, 
         llm, doc_retriever, model_version = setup_chat(model, graph, session_id, document_names,retrieval_query)
 
         docs = retrieve_documents(doc_retriever, messages)
-
+        print(f'docs: {docs}')
         if docs:
             content, result, total_tokens = process_documents(docs, question, messages, llm,model)
         else:

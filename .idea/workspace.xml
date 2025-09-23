@@ -4,35 +4,18 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="新修QA_RAG">
-      <change afterPath="$PROJECT_DIR$/backend/src/jointlk_integration/debug_init.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" afterDir="false" />
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="qa_gnn">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet.en.csv.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet.en.pruned.graph.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet.en.unpruned.graph.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/matcher_patterns.json.baiduyun.uploading.cfg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/tzw.ent.npy.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/csqa/graph/dev.graph.adj.pk.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/csqa/graph/dev.graph.adj.pk.loaded_cache.baiduyun.uploading.cfg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/JointLK/data/csqa/graph/test.graph.adj.pk.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/csqa/graph/test.graph.adj.pk.loaded_cache.baiduyun.uploading.cfg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/JointLK/modeling/modeling_jointlk.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/modeling/modeling_jointlk.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/score.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/score.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/QA_integration_new.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/QA_integration_new.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/jointlk_integration/data_transformer.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/jointlk_integration/data_transformer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/jointlk_integration/inference_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/jointlk_integration/inference_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/jointlk_integration/service_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/jointlk_integration/service_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/ChatBot/Chatbot.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/ChatBot/Chatbot.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/Content.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/Content.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/Graph/GraphViewModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/Graph/GraphViewModal.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/Graph/JointLKInferenceVisualizer.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/Graph/JointLKInferenceVisualizer.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/Layout/JointLKControls.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/Layout/JointLKControls.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/services/QnaAPI.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/services/QnaAPI.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/utils/Constants.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/utils/Constants.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/data_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -282,7 +265,15 @@
       <option name="project" value="LOCAL" />
       <updated>1757185925275</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="qa_gnn">
+      <option name="closed" value="true" />
+      <created>1758632571080</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1758632571080</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -301,8 +292,10 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="新增jointlk" />
+    <MESSAGE value="解决 JointLK 子模块 README.md 的合并冲突&#10;新修QA_RAG" />
     <MESSAGE value="新修QA_RAG" />
-    <option name="LAST_COMMIT_MESSAGE" value="新修QA_RAG" />
+    <MESSAGE value="qa_gnn" />
+    <option name="LAST_COMMIT_MESSAGE" value="qa_gnn" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
