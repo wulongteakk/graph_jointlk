@@ -319,7 +319,7 @@ async def chat_bot(uri=Form(None), model=Form(None), userName=Form(None), passwo
     print("score use_jointlk is", use_jointlk)
     print("mode is", mode)
     use_jointlk = True
-    mode = "graph"
+
     qa_rag_start_time = time.time()
     subgraph_result = get_graph_results(
         uri,

@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="qa_gnn">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="qa_gnn初级可用">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet.en.csv.baiduyun.uploading.cfg" beforeDir="false" />
@@ -14,6 +14,7 @@
       <change beforePath="$PROJECT_DIR$/JointLK/data/csqa/graph/dev.graph.adj.pk.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/csqa/graph/dev.graph.adj.pk.loaded_cache.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/csqa/graph/test.graph.adj.pk.loaded_cache.baiduyun.uploading.cfg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/score.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/score.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/QA_integration_new.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/QA_integration_new.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" afterDir="false" />
     </list>
@@ -273,7 +274,15 @@
       <option name="project" value="LOCAL" />
       <updated>1758632571080</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="qa_gnn初级可用">
+      <option name="closed" value="true" />
+      <created>1758640921106</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1758640921106</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -295,7 +304,8 @@
     <MESSAGE value="解决 JointLK 子模块 README.md 的合并冲突&#10;新修QA_RAG" />
     <MESSAGE value="新修QA_RAG" />
     <MESSAGE value="qa_gnn" />
-    <option name="LAST_COMMIT_MESSAGE" value="qa_gnn" />
+    <MESSAGE value="qa_gnn初级可用" />
+    <option name="LAST_COMMIT_MESSAGE" value="qa_gnn初级可用" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

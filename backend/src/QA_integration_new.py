@@ -20,12 +20,11 @@ from langchain_community.document_transformers import EmbeddingsRedundantFilter
 from langchain.retrievers.document_compressors import EmbeddingsFilter
 from langchain.retrievers.document_compressors import DocumentCompressorPipeline
 from langchain_text_splitters import TokenTextSplitter
-from langchain_core.messages import HumanMessage,AIMessage
+from langchain_core.messages import HumanMessage,AIMessage,SystemMessage
 from src.shared.constants import *
 from src.llm import get_llm
 from langchain.chains import GraphCypherQAChain
 import json
-
 try:
     from src.qagnn_scorer import prune_and_score_nodes
     QAGNN_SCORER_ENABLED=True
@@ -309,10 +308,7 @@ def get_graph_response(graph_chain, question):
 
         cypher_query = ""
         context = []
-        #与问题相关的子图
 
-        entities = []
-        relationships = []
         for step in cypher_res.get("intermediate_steps", []):
             print("step is ", step)
             if "query" in step:
@@ -323,19 +319,16 @@ def get_graph_response(graph_chain, question):
             if "result" in step:
                 execution_result = step["result"]
                 records = execution_result.get("records", [])  # Neo4j返回的原始记录列表
-                # 提取与问题相关的实体和关系
-                entities = extract_node_elements(records)
-                relationships = extract_relationships(records)
+
         return {
             "response": response,
             "cypher_query": cypher_query,
             "context": context,
-            "entities": entities,  # 新增：实体（节点）
-            "relationships": relationships  # 新增：关系
         }
 
     except Exception as e:
         logging.error("An error occurred while getting the graph response : {e}")
+
 
 def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, include_visualization: bool = False, subgraph_result=None):
     try:
@@ -345,6 +338,7 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, 
         messages = history.messages
         user_question = HumanMessage(content=question)
         messages.append(user_question)
+
         logging.info(f"Received mode: {mode}, Received use_jointlk: {use_jointlk}, include_visualization: {include_visualization}")
         use_jointlk=True
         if isinstance(use_jointlk, str):
@@ -352,40 +346,41 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, 
         else:
             use_jointlk_bool = bool(use_jointlk)
 
-        visualization_data = None
 
-        if mode == "graph":
-            print("gogogo")
-            graph_chain, qa_llm,model_version = create_graph_chain(model,graph)
-            print("question 1", question)
-            graph_response = get_graph_response(graph_chain,question)
-            original_context = graph_response.get("context", [])
-            cypher_query = graph_response.get("cypher_query", "")
-            original_nodes = subgraph_result.get("nodes", [])
-            original_relationships = subgraph_result.get("relationships", [])
-            print(f'original_relationships: {original_relationships}')
-            final_context = original_context
+        if use_jointlk_bool:
+            print("let me know use_jointlk")
 
-            if use_jointlk_bool:
-                print("let me know use_jointlk")
+            # 1. 检查 subgraph_result 是否存在
+            if not subgraph_result:
+                logging.warning("[QAGNN Pruning] subgraph_result is None. Skipping pruning.")
+                original_nodes = []
+                original_relationships = []
+            else:
+                # 2. 安全地获取节点和关系
+                original_nodes = subgraph_result.get("nodes", [])
+                original_relationships = subgraph_result.get("relationships", [])
+
+            # 只有在有节点的情况下才运行剪枝
+            if original_nodes:
                 try:
-                    # 'top_k' 是一个可调参数。
                     # 设为 0 或 负数 则只排序不剪枝。
-                    retained_node_names_set,retained_node_ids_set = prune_and_score_nodes(
+                    retained_node_names_set, retained_node_ids_set, top_k_items = prune_and_score_nodes(
                         nodes_list=original_nodes,
                         question=question,
-                        top_k=20  # 您可以调整这个K值
+                        top_k=100
                     )
+
                     pruned_nodes = [
                         e for e in original_nodes
                         if e.get('element_id') in retained_node_ids_set
                     ]
 
-                    print(f'retained_node_ids_set: {retained_node_ids_set}')
+
 
                     pruned_relationships = [
                         r for r in original_relationships
-                        if r.get('start_node_element_id') in retained_node_ids_set and r.get('end_node_element_id') in retained_node_ids_set
+                        if r.get('start_node_element_id') in retained_node_ids_set and r.get(
+                            'end_node_element_id') in retained_node_ids_set
                     ]
                     logging.info(
                         f"[QAGNN Pruning] Pruned visualization: {len(pruned_nodes)} nodes, {len(pruned_relationships)} rels")
@@ -394,72 +389,64 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, 
                     logging.error(f"[QAGNN Pruning] Error during pruning: {e}. Falling back to original context.")
 
                     retained_node_names_set = set(e.get('name') for e in original_nodes)
-                    pruned_nodes= original_nodes
+                    pruned_nodes = original_nodes
                     pruned_relationships = original_relationships
-                print(f"pruned_nodes :{pruned_nodes}")
-                print(f"pruned_relationships :{pruned_relationships}")
 
-                final_context_graph= {
+
+
+                final_items = {
                     "nodes": pruned_nodes,
                     "relationships": pruned_relationships
                 }
 
-                QA_PROMPT_TEMPLATE = """
-                            You are an assistant that helps to form nice and human-readable answers.
-                            The information part contains the provided information that you must use to construct an answer.
-                            The provided information is authoritative, you must use it.
-                            You must determine if the information is sufficient to answer the question.
-                            When the information is sufficient, summarize it and answer the question.
-                            If the information is insufficient, say that you cannot answer the question.
-                            Do not make up information.
-                            Do not add any information that is not in the provided information.
 
-                            Information:
-                            {context}
 
-                            Question: {question}
-                            Helpful Answer:
-                            """
+                try:
+                    # 使用 json.dumps 将字典转换为字符串
+                    # default=str 用于处理任何非序列化类型 (如 datetime)
+                    graph_context_string = json.dumps(final_items, indent=2, default=str)
 
-                qa_prompt = ChatPromptTemplate.from_template(QA_PROMPT_TEMPLATE)
+                    # 创建一个 SystemMessage 来承载上下文
+                    context_message = SystemMessage(
+                        content=f"Use the following pruned knowledge graph subset as context to answer the user's question:\n\n{graph_context_string}"
+                    )
 
-                logging.info("Invoking final QA_LLM with pruned context...")
+                    # 将 SystemMessage 附加到列表中
+                    messages.append(context_message)
 
-                final_answer_chain = qa_prompt | qa_llm | StrOutputParser()
+                    print(f'messages_use (with graph context appended):\n{messages}')
 
-                final_response = final_answer_chain.invoke({
-                    "context": json.dumps(final_context_graph, ensure_ascii=False),
-                    "question": question
-                })
+                except Exception as e:
+                    logging.error(f"Failed to serialize or append pruned graph context: {e}")
+                    messages.append(SystemMessage(
+                        content="[Error: Pruned graph context was available but could not be serialized.]"))
 
-                print(f'final_response: {final_response}')
-                ai_response = AIMessage(content=final_response)
-                message_response = final_response
+
             else:
-                print("QAGNN Scorer is disabled. Skipping pruning.")
-                message_response= graph_response["response"]
-                ai_response = AIMessage(content=graph_response["response"]) if graph_response[
-                    "response"] else AIMessage(content="Something went wrong")
+                logging.info("[QAGNN Pruning] No original nodes found. Skipping pruning and context injection.")
 
+        if mode == "graph":
+            graph_chain, qa_llm, model_version = create_graph_chain(model, graph)
+            graph_response = get_graph_response(graph_chain, question)
+            ai_response = AIMessage(content=graph_response["response"]) if graph_response["response"] else AIMessage(
+                content="Something went wrong")
             messages.append(ai_response)
             summarize_and_log(history, messages, qa_llm)
-
-
-
             result = {
                 "session_id": session_id,
-                "message": message_response,
+                "message": graph_response["response"],
                 "info": {
                     "model": model_version,
-                    'cypher_query':graph_response["cypher_query"],
-                    "context" : final_context,
-                    "mode" : mode,
-                    "response_time": 0,
-                    "visualization_data": visualization_data
+                    'cypher_query': graph_response["cypher_query"],
+                    "context": graph_response["context"],
+                    "mode": mode,
+                    "response_time": 0
                 },
                 "user": "chatbot"
             }
+
             return result
+
         elif mode == "vector":
             retrieval_query = VECTOR_SEARCH_QUERY
         else:
@@ -468,7 +455,7 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, 
         llm, doc_retriever, model_version = setup_chat(model, graph, session_id, document_names,retrieval_query)
 
         docs = retrieve_documents(doc_retriever, messages)
-        print(f'docs: {docs}')
+
         if docs:
             content, result, total_tokens = process_documents(docs, question, messages, llm,model)
         else:

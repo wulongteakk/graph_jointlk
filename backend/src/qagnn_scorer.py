@@ -181,14 +181,16 @@ def prune_and_score_nodes(
         return retained_names, retained_ids
 
     node_names_list = list(all_nodes_names)
-    print(f'node_names_list: {node_names_list}')
+    # print(f'node_names_list: {node_names_list}')
 
     log.debug(f"[QAGNN Scorer] Found {len(node_names_list)} unique nodes to score.")
 
     # 2. 调用 QAGNN 评分器
     try:
         node_scores: 'OrderedDict[str, float]' = get_LM_score_for_nodes(node_names_list, question)
-        print(f'node_scores: {node_scores}')
+
+        # print(f'node_scores: {node_scores}')
+
     except Exception as e:
         log.error(f"[QAGNN Scorer] Error during node scoring: {e}")
         # 评分失败，返回所有原始节点
@@ -201,11 +203,12 @@ def prune_and_score_nodes(
     retained_node_names_set: Set[str]
     if top_k > 0 and len(node_scores) > top_k:
         retained_node_names_set = set(list(node_scores.keys())[:top_k])
-        log.info(f"[QAGNN Scorer] Retaining top {top_k} nodes out of {len(node_scores)}.")
-        log.debug(f"[QAGNN Scorer] Top nodes: {retained_node_names_set}")
+        top_k_items = set(list(node_scores.items())[:top_k])
+
+        # print(f"[QAGNN Scorer] Top nodes: {retained_node_names_set}")
     else:
         retained_node_names_set = set(node_scores.keys())
-        log.info(f"[QAGNN Scorer] Retaining all {len(retained_node_names_set)} scored nodes (top_k <= 0).")
+        # print(f"[QAGNN Scorer] Retaining all {len(retained_node_names_set)} scored nodes (top_k <= 0).")
 
     # 4. 映射回 element_id
     retained_node_ids_set: Set[str] = set()
@@ -216,4 +219,4 @@ def prune_and_score_nodes(
     log.info(f"[QAGNN Scorer] Pruning complete. Retaining {len(retained_node_names_set)} nodes.")
 
     # --- 修改点 4: 返回两个集合 ---
-    return retained_node_names_set, retained_node_ids_set
+    return retained_node_names_set, retained_node_ids_set,top_k_items
