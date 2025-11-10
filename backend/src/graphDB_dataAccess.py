@@ -241,3 +241,17 @@ class graphDBdataAccess:
         """
         param = {"elementIds":entities_list}
         return self.execute_query(query,param)
+    def export_concept(self):
+        query_entities = """
+        MATCH (e) 
+        WHERE NOT e:Chunk AND NOT e:Document 
+        RETURN e.id AS name
+        """
+        query_edges = """
+        MATCH (h)-[r]->(t) 
+        WHERE NOT h:Chunk AND NOT h:Document AND NOT t:Chunk AND NOT t:Document 
+        RETURN h.id AS head, t.id AS tail, type(r) AS rel_type
+        """
+        query_nodes=self.execute_query(query_entities)
+        query_relations=self.execute_query(query_edges)
+        return query_nodes, query_relations

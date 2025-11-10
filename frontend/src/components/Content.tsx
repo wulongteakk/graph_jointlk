@@ -694,7 +694,6 @@ const Content: React.FC<ContentProps> = ({
           placement='top'
           onClick={handleGraphView}
           disabled={showGraphCheck}
-          onClick={() => setShowGraphConstructionModal(true)}
           className='mr-0.5 bg-red-600 hover:bg-red-700 text-white'
           label='show graph'
         >

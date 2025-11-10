@@ -195,6 +195,5 @@ export const appLabels = {
 };
 export const JointlkView: OptionType[] = [
   { label: 'Graph layout scale', value: queryMap.DocChunks },
-  { label: 'Confidence score', value: queryMap.Entities },
-  { label: 'Alignment relationship', value: queryMap.DocChunkEntities },
+  { label: 'Relevance score', value: queryMap.Entities },
 ];

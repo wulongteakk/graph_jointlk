@@ -586,7 +586,7 @@ export interface RagStepInitialRetrieval {
 };
 
 export interface JointLkEnhancement {
-  status?: string; // 使其可选，因为聊天时也会用到
+  status?: string;
   input_graph_stats: {
     node_count: number;
     relation_count: number;
@@ -596,6 +596,16 @@ export interface JointLkEnhancement {
     name: string;
     score: number;
   }[];
+  pruning_data: { // 新增
+    before: {
+      nodes: any[];
+      relationships: any[];
+    };
+    after: {
+      nodes: any[];
+      relationships: any[];
+    };
+  };
 }
 
 export interface RagSteps {

@@ -1,10 +1,12 @@
-       import axios from 'axios';
+import axios from 'axios';
 import { url } from '../utils/Utils';
 import { UserCredentials } from '../types';
 
-const graphQueryAPI = async (
+const pruningGraphQueryAPI = async (
   userCredentials: UserCredentials,
   query_type: string,
+  question: string,
+  use_jointlk?:boolean,
   document_names: (string | undefined)[] | undefined
 ) => {
   try {
@@ -15,8 +17,11 @@ const graphQueryAPI = async (
     formData.append('password', userCredentials?.password ?? '');
     formData.append('query_type', query_type ?? 'entities');
     formData.append('document_names', JSON.stringify(document_names));
+    if (use_jointlk !== undefined) {
+      formData.append('use_jointlk', String(use_jointlk));
+    }
 
-    const response = await axios.post(`${url()}/graph_query`, formData, {
+    const response = await axios.post(`${url()}/pruning_graph_query`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -27,4 +32,4 @@ const graphQueryAPI = async (
     throw error;
   }
 };
-export default graphQueryAPI;
+export default pruningGraphQueryAPI;

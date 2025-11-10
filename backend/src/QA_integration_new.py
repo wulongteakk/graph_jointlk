@@ -329,8 +329,63 @@ def get_graph_response(graph_chain, question):
     except Exception as e:
         logging.error("An error occurred while getting the graph response : {e}")
 
+def PruningItems(use_jointlk,question,subgraph_result=None, ):
+    if isinstance(use_jointlk, str):
+        use_jointlk_bool = use_jointlk.lower() == 'false'
+    else:
+        use_jointlk_bool = bool(use_jointlk)
 
-def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, include_visualization: bool = False, subgraph_result=None):
+    if use_jointlk_bool:
+        print("let me know use_jointlk")
+
+        # 1. 检查 subgraph_result 是否存在
+        if not subgraph_result:
+            logging.warning("[QAGNN Pruning] subgraph_result is None. Skipping pruning.")
+            original_nodes = []
+            original_relationships = []
+        else:
+            # 2. 安全地获取节点和关系
+            original_nodes = subgraph_result.get("nodes", [])
+            original_relationships = subgraph_result.get("relationships", [])
+
+        # 只有在有节点的情况下才运行剪枝
+        if original_nodes:
+
+            try:
+                # 设为 0 或 负数 则只排序不剪枝。
+                retained_node_names_set, retained_node_ids_set, top_k_items = prune_and_score_nodes(
+                    nodes_list=original_nodes,
+                    question=question,
+                    top_k=int(0.4 * len(original_nodes))
+                )
+
+                pruned_nodes = [
+                    e for e in original_nodes
+                    if e.get('element_id') in retained_node_ids_set
+                ]
+
+                pruned_relationships = [
+                    r for r in original_relationships
+                    if r.get('start_node_element_id') in retained_node_ids_set and r.get(
+                        'end_node_element_id') in retained_node_ids_set
+                ]
+                logging.info(
+                    f"[QAGNN Pruning] Pruned visualization: {len(pruned_nodes)} nodes, {len(pruned_relationships)} rels")
+
+            except Exception as e:
+                logging.error(f"[QAGNN Pruning] Error during pruning: {e}. Falling back to original context.")
+
+                retained_node_names_set = set(e.get('name') for e in original_nodes)
+                pruned_nodes = original_nodes
+                pruned_relationships = original_relationships
+
+            final_items = {
+                "nodes": pruned_nodes,
+                "relationships": pruned_relationships
+            }
+        return final_items,top_k_items
+
+def QA_RAG(graph, model, question, document_names,session_id, mode,final_items):
     try:
 
         logging.info(f"Chat Mode : {mode}")
@@ -338,92 +393,26 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,use_jointlk, 
         messages = history.messages
         user_question = HumanMessage(content=question)
         messages.append(user_question)
+        try:
 
-        logging.info(f"Received mode: {mode}, Received use_jointlk: {use_jointlk}, include_visualization: {include_visualization}")
-        use_jointlk=True
-        if isinstance(use_jointlk, str):
-            use_jointlk_bool = use_jointlk.lower() == 'true'
-        else:
-            use_jointlk_bool = bool(use_jointlk)
+            graph_context_string = json.dumps(final_items, indent=2, default=str)
+            # 创建一个 SystemMessage 来承载上下文
+            context_message = SystemMessage(
+                content=f"Use the following pruned knowledge graph subset as context to answer the user's question:\n\n{graph_context_string}"
+            )
 
-
-        if use_jointlk_bool:
-            print("let me know use_jointlk")
-
-            # 1. 检查 subgraph_result 是否存在
-            if not subgraph_result:
-                logging.warning("[QAGNN Pruning] subgraph_result is None. Skipping pruning.")
-                original_nodes = []
-                original_relationships = []
-            else:
-                # 2. 安全地获取节点和关系
-                original_nodes = subgraph_result.get("nodes", [])
-                original_relationships = subgraph_result.get("relationships", [])
-
-            # 只有在有节点的情况下才运行剪枝
-            if original_nodes:
-                try:
-                    # 设为 0 或 负数 则只排序不剪枝。
-                    retained_node_names_set, retained_node_ids_set, top_k_items = prune_and_score_nodes(
-                        nodes_list=original_nodes,
-                        question=question,
-                        top_k=100
-                    )
-
-                    pruned_nodes = [
-                        e for e in original_nodes
-                        if e.get('element_id') in retained_node_ids_set
-                    ]
+            # 将 SystemMessage 附加到列表中
+            messages.append(context_message)
 
 
 
-                    pruned_relationships = [
-                        r for r in original_relationships
-                        if r.get('start_node_element_id') in retained_node_ids_set and r.get(
-                            'end_node_element_id') in retained_node_ids_set
-                    ]
-                    logging.info(
-                        f"[QAGNN Pruning] Pruned visualization: {len(pruned_nodes)} nodes, {len(pruned_relationships)} rels")
-
-                except Exception as e:
-                    logging.error(f"[QAGNN Pruning] Error during pruning: {e}. Falling back to original context.")
-
-                    retained_node_names_set = set(e.get('name') for e in original_nodes)
-                    pruned_nodes = original_nodes
-                    pruned_relationships = original_relationships
+        except Exception as e:
+            logging.error(f"Failed to serialize or append pruned graph context: {e}")
+            messages.append(SystemMessage(
+                content="[Error: Pruned graph context was available but could not be serialized.]"))
 
 
 
-                final_items = {
-                    "nodes": pruned_nodes,
-                    "relationships": pruned_relationships
-                }
-
-
-
-                try:
-                    # 使用 json.dumps 将字典转换为字符串
-                    # default=str 用于处理任何非序列化类型 (如 datetime)
-                    graph_context_string = json.dumps(final_items, indent=2, default=str)
-
-                    # 创建一个 SystemMessage 来承载上下文
-                    context_message = SystemMessage(
-                        content=f"Use the following pruned knowledge graph subset as context to answer the user's question:\n\n{graph_context_string}"
-                    )
-
-                    # 将 SystemMessage 附加到列表中
-                    messages.append(context_message)
-
-                    print(f'messages_use (with graph context appended):\n{messages}')
-
-                except Exception as e:
-                    logging.error(f"Failed to serialize or append pruned graph context: {e}")
-                    messages.append(SystemMessage(
-                        content="[Error: Pruned graph context was available but could not be serialized.]"))
-
-
-            else:
-                logging.info("[QAGNN Pruning] No original nodes found. Skipping pruning and context injection.")
 
         if mode == "graph":
             graph_chain, qa_llm, model_version = create_graph_chain(model, graph)

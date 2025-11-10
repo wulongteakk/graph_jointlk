@@ -16,6 +16,8 @@ from src.document_sources.youtube import *
 from src.shared.common_fn import *
 from src.make_relationships import *
 from src.document_sources.web_pages import *
+from src.graph_export import generate_gpickle_export
+
 import re
 from langchain_community.document_loaders import WikipediaLoader, WebBaseLoader
 import warnings
@@ -341,6 +343,19 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
     logging.info('Updated the nodeCount and relCount properties in Document node')
     logging.info(f'file:{file_name} extraction has been completed')
 
+    # 生成词汇表和gpickle
+    if job_status == "Completed":
+        try:
+            logging.info("Starting graph export to gpickle format...")
+            query_nodes, query_relations = graphDb_data_Access.export_concept()
+            generate_gpickle_export(query_nodes, query_relations)
+
+            logging.info(f"Successfully exported graph to data/my_kg/my_concept.txt and data/my_kg/my_graph.gpickle")
+
+        except Exception as e:
+            logging.error(f"Failed to export gpickle graph: {e}")
+
+
 
     # merged_file_path have value only when file uploaded from local
     
@@ -364,34 +379,60 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
   else:
      logging.info('File does not process because it\'s already in Processing status')
 
-def processing_chunks(chunkId_chunkDoc_list,graph,file_name,model,allowedNodes,allowedRelationship, node_count, rel_count):
-  #create vector index and update chunk node with embedding
-  update_embedding_create_vector_index( graph, chunkId_chunkDoc_list, file_name)
-  logging.info("Get graph document list from models")
-  graph_documents =  generate_graphDocuments(model, graph, chunkId_chunkDoc_list, allowedNodes, allowedRelationship)
-  save_graphDocuments_in_neo4j(graph, graph_documents)
-  chunks_and_graphDocuments_list = get_chunk_and_graphDocument(graph_documents, chunkId_chunkDoc_list)
-  merge_relationship_between_chunk_and_entites(graph, chunks_and_graphDocuments_list)
-  # return graph_documents
 
-  distinct_nodes = set()
-  relations = []
-  for graph_document in graph_documents:
-    #get distinct nodes
-    for node in graph_document.nodes:
-          node_id = node.id
-          node_type= node.type
-          if (node_id, node_type) not in distinct_nodes:
-            distinct_nodes.add((node_id, node_type))
-  #get all relations
-  for relation in graph_document.relationships:
-        relations.append(relation.type)
+def processing_chunks(chunkId_chunkDoc_list, graph, file_name, model, allowedNodes, allowedRelationship, node_count,
+                      rel_count):
+    # create vector index and update chunk node with embedding
+    update_embedding_create_vector_index(graph, chunkId_chunkDoc_list, file_name)
+    logging.info("Get graph document list from models")
+    graph_documents = generate_graphDocuments(model, graph, chunkId_chunkDoc_list, allowedNodes, allowedRelationship)
 
-  node_count += len(distinct_nodes)
-  rel_count += len(relations)
-  print(f'node count internal func:{node_count}')
-  print(f'relation count internal func:{rel_count}')
-  return node_count,rel_count
+    # 检查 graph_documents 是否为空
+    if not graph_documents:
+        logging.warning(f"No graph documents were generated for file {file_name}. Skipping chunk processing.")
+        # 即使没有生成图，也需要保存已有的图文档（如果之前批次有的话）
+        save_graphDocuments_in_neo4j(graph, [])  # 传入空列表以避免错误
+        return node_count, rel_count  # 返回未修改的计数值
+
+    save_graphDocuments_in_neo4j(graph, graph_documents)
+    chunks_and_graphDocuments_list = get_chunk_and_graphDocument(graph_documents, chunkId_chunkDoc_list)
+    merge_relationship_between_chunk_and_entites(graph, chunks_and_graphDocuments_list)
+
+    # ==============================================================================
+    # START: 修复 UnboundLocalError
+    # ==============================================================================
+    # 我们需要将两个循环合并。
+    # 原始代码在 graph_documents 为空时会失败，
+    # 并且错误地只循环最后一个 graph_document 的关系。
+
+    distinct_nodes = set()
+    relations = []
+
+    # 遍历每一个图文档
+    for graph_document in graph_documents:
+
+        # 1. 从当前文档中获取所有独立节点
+        if graph_document.nodes:
+            for node in graph_document.nodes:
+                node_id = node.id
+                node_type = node.type
+                if (node_id, node_type) not in distinct_nodes:
+                    distinct_nodes.add((node_id, node_type))
+
+        # 2. 从当前文档中获取所有关系
+        if graph_document.relationships:
+            for relation in graph_document.relationships:
+                relations.append(relation.type)
+
+    # ==============================================================================
+    # END: 修复
+    # ==============================================================================
+
+    node_count += len(distinct_nodes)
+    rel_count += len(relations)
+    print(f'node count internal func:{node_count}')
+    print(f'relation count internal func:{rel_count}')
+    return node_count, rel_count
 
 def get_source_list_from_graph(uri,userName,password,db_name=None):
   """
@@ -552,3 +593,4 @@ def populate_graph_schema_from_text(text, model, is_schema_description_cheked):
   """
   result = schema_extraction_from_text(text, model, is_schema_description_cheked)
   return {"labels": result.labels, "relationshipTypes": result.relationshipTypes}
+

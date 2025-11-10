@@ -226,5 +226,41 @@
       "RESULTED_IN"
     ],
     "schema": "healthcare"
+  },
+  {
+    "labels": ["..."],
+    "relationshipTypes": ["..."],
+    "schema": "stackoverflow"
+  },
+  {
+    "labels": ["..."],
+    "relationshipTypes": ["..."],
+    "schema": "healthcare"
+  },
+  {
+    "labels": [
+      "Accident",
+      "Project",
+      "Person",
+      "Company",
+      "Location",
+      "Equipment",
+      "Cause",
+      "Injury",
+      "Report"
+    ],
+    "relationshipTypes": [
+      "HAPPENED_AT",
+      "OCCURRED_IN_PROJECT",
+      "INVOLVED_PERSON",
+      "INVOLVED_EQUIPMENT",
+      "HAS_CAUSE",
+      "RESULTED_IN",
+      "RESPONSIBLE_FOR",
+      "WORKS_FOR",
+      "LOCATED_AT",
+      "DOCUMENTS"
+    ],
+    "schema": "Construction_safety"
   }
 ]

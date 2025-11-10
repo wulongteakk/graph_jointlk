@@ -37,6 +37,12 @@ CHAT_TOKEN_CUT_OFF = {
      ("ollama_llama3") : 2  
 } 
 
+EXTRACTION_PROMPT_TEMPLATE = """
+You are a top-tier algorithm designed for extracting information in structured formats to build a knowledge graph.
+- **Nodes** represent entities and concepts.
+- **Relationships** represent connections between entities.
+Extract all entities and relationships from the text.
+"""
 
 ### CHAT TEMPLATES 
 CHAT_SYSTEM_TEMPLATE = """
@@ -245,3 +251,108 @@ as text,entities
 
 RETURN text, avg_score as score, {{length:size(text), source: COALESCE( CASE WHEN d.url CONTAINS "None" THEN d.fileName ELSE d.url END, d.fileName), chunkdetails: chunkdetails}} AS metadata
 """
+
+# ==============================================================================
+# START: 建筑安全风险量化 (Construction Safety Risk Quantification)
+# ==============================================================================
+
+# 阶段一：Schema 定义 (Node and Relationship Types)
+CONSTRUCTION_NODE_LABELS = [
+    "人员", "班组", "设备", "物料", "作业", "任务",
+    "隐患", "风险", "时间", "地点", "环境因素"
+]
+
+CONSTRUCTION_REL_TYPES = [
+    "执行", "使用", "产生", "存在", "状态是", "发生在", "关联于"
+]
+
+# ------------------------------------------------------------------------------
+# 阶段二：知识提取 Prompt (LLM as "Information Extractor")
+# ------------------------------------------------------------------------------
+# 这个 Prompt 将用于 LLMGraphTransformer
+CONSTRUCTION_EXPERT_PROMPT_TEMPLATE = """
+你是一个建筑安全专家和信息提取算法。
+请严格按照我定义的 Schema，从以下报告文本中提取所有相关的实体和关系。
+**必须**以我要求的 JSON 格式输出，不要包含任何解释或额外的文本。
+
+Schema (本体) 定义:
+节点 (Entities): {node_labels}
+关系 (Relations): {rel_types}
+
+报告原文:
+---
+{input}
+---
+
+输出格式 (严格遵守):
+{{
+  "entities": [
+    {{"id": "实体ID或名称", "type": "节点类型", "name": "实体名称", "properties": {{"status": "状态(可选)"}} }}
+  ],
+  "relations": [
+    {{"from_id": "源实体ID", "type": "关系类型", "to_id": "目标实体ID"}}
+  ]
+}}
+
+示例输入:
+'10月25日上午，安全员李四巡查A区3号楼，发现电焊组张三在未佩戴防护面罩的情况下进行动火作业（隐患编号A-102）。已当场责令停止。'
+
+示例输出:
+{{
+  "entities": [
+    {{"id": "10月25日上午", "type": "时间", "name": "10月25日上午", "properties": {{}} }},
+    {{"id": "安全员-李四", "type": "人员", "name": "安全员-李四", "properties": {{}} }},
+    {{"id": "A区-3号楼", "type": "地点", "name": "A区-3号楼", "properties": {{}} }},
+    {{"id": "电焊组-张三", "type": "人员", "name": "电焊组-张三", "properties": {{}} }},
+    {{"id": "未佩戴防护面罩", "type": "隐患", "name": "未佩戴防护面罩", "properties": {{}} }},
+    {{"id": "动火作业", "type": "作业", "name": "动火作业", "properties": {{}} }},
+    {{"id": "A-102", "type": "隐患", "name": "未佩戴防护面罩", "properties": {{"status": "已整改"}} }}
+  ],
+  "relations": [
+    {{"from_id": "安全员-李四", "type": "执行", "to_id": "巡查"}},
+    {{"from_id": "电焊组-张三", "type": "执行", "to_id": "动火作业"}},
+    {{"from_id": "电焊组-张三", "type": "存在", "to_id": "未佩戴防护面罩"}},
+    {{"from_id": "未佩戴防护面罩", "type": "关联于", "to_id": "动火作业"}},
+    {{"from_id": "动火作业", "type": "发生在", "to_id": "A区-3号楼"}},
+    {{"from_id": "A-102", "type": "关联于", "to_id": "未佩戴防护面罩"}}
+  ]
+}}
+"""
+
+# ------------------------------------------------------------------------------
+# 阶段三：隐患打分 Prompt (LLM as "Analyst")
+# ------------------------------------------------------------------------------
+HAZARD_SCORING_PROMPT_TEMPLATE = """
+你是一个资深的建筑安全评估专家。
+请对以下描述的建筑安全隐患，按1-10分进行【严重性】打分（1分为轻微，10分为可能导致致命事故）。
+请仅返回一个JSON对象，包含分数和简短理由。
+
+隐患描述: "{hazard_description}"
+
+输出格式:
+{{"score": <分数>, "reason": "<简短理由>"}}
+"""
+
+# ------------------------------------------------------------------------------
+# 阶段四：风险概率量化 Prompt (LLM as "Decision-maker")
+# ------------------------------------------------------------------------------
+RISK_ASSESSMENT_PROMPT_TEMPLATE = """
+你是一个顶级的建筑安全事故概率量化模型。
+请基于以下从知识图谱中检索到的、与“{query}”相关的实时风险因子，分析它们之间的【耦合效应】，并给出一个最终的【量化风险分数】（0-100分）和【事故概率等级】（极低/低/中/高/极高）。
+
+--- 实时风险因子 ---
+{context}
+---
+
+请严格按以下 JSON 格式输出你的分析和评估结果：
+
+{{
+  "risk_coupling_analysis": "（在这里分析各因子如何相互作用，特别是大雨、基坑异常等如何放大风险，以及缓解措施如何降低风险）",
+  "quantitative_risk_score": <一个 0-100 的整数分数>,
+  "accident_probability_level": "（极低/低/中/高/极高）"
+}}
+"""
+
+# ==============================================================================
+# END: 建筑安全风险量化
+# ==============================================================================

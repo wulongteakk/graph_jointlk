@@ -4,9 +4,14 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="qa_gnn初级可用">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="增加量化模块">
+      <change afterPath="$PROJECT_DIR$/backend/src/graph_export.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/risk_analysis.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/context/GraphViewContext.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/services/PruningGraphAPI.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet.en.csv.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet.en.pruned.graph.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet.en.unpruned.graph.baiduyun.uploading.cfg" beforeDir="false" />
@@ -14,9 +19,23 @@
       <change beforePath="$PROJECT_DIR$/JointLK/data/csqa/graph/dev.graph.adj.pk.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/csqa/graph/dev.graph.adj.pk.loaded_cache.baiduyun.uploading.cfg" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/csqa/graph/test.graph.adj.pk.loaded_cache.baiduyun.uploading.cfg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/JointLK/jointlk.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/jointlk.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/JointLK/modeling/modeling_jointlk.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/modeling/modeling_jointlk.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/JointLK/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/data_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/score.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/score.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/QA_integration_new.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/QA_integration_new.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/graph_transformers/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_transformers/llm.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/shared/constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/shared/constants.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/assets/schemas.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/assets/schemas.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/components/Content.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/Content.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/services/GraphQuery.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/services/GraphQuery.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/types.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/types.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/utils/Constants.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/utils/Constants.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -54,6 +73,7 @@
     "Python.QA_integration_new.executor": "Debug",
     "Python.cypher.executor": "Run",
     "Python.debug_init.executor": "Run",
+    "Python.demo.executor": "Run",
     "Python.modeling_jointlk.executor": "Run",
     "Python.score.executor": "Run",
     "Python.scratch_1.executor": "Run",
@@ -68,7 +88,7 @@
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "project.propVCSSupport.DirectoryMappings",
+    "settings.editor.selected.configurable": "preferences.pluginManager",
     "vue.rearranger.settings.migration": "true"
   },
   "keyToStringList": {
@@ -149,7 +169,7 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
-    <configuration name="modeling_jointlk" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+    <configuration name="demo" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="llm-graph-builder" />
       <option name="ENV_FILES" value="" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -158,11 +178,11 @@
         <env name="PYTHONUNBUFFERED" value="1" />
       </envs>
       <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/../../../../JointLK/JointLK/modeling" />
-      <option name="IS_MODULE_SDK" value="false" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/backend/src/safety_kg/safety_kg" />
+      <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/../../../../JointLK/JointLK/modeling/modeling_jointlk.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/backend/src/safety_kg/safety_kg/demo.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -214,11 +234,11 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Python.demo" />
         <item itemvalue="Python.cypher" />
         <item itemvalue="Python 测试.pytest (debug_init.py 内)" />
         <item itemvalue="Python.QA_integration_new" />
         <item itemvalue="Python.debug_init" />
-        <item itemvalue="Python.modeling_jointlk" />
       </list>
     </recent_temporary>
   </component>
@@ -282,7 +302,15 @@
       <option name="project" value="LOCAL" />
       <updated>1758640921106</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="剪枝后的节点和关系作为上下文输入进大模型">
+      <option name="closed" value="true" />
+      <created>1758648347431</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1758648347431</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -305,22 +333,20 @@
     <MESSAGE value="新修QA_RAG" />
     <MESSAGE value="qa_gnn" />
     <MESSAGE value="qa_gnn初级可用" />
-    <option name="LAST_COMMIT_MESSAGE" value="qa_gnn初级可用" />
+    <MESSAGE value="剪枝后的节点和关系作为上下文输入进大模型" />
+    <MESSAGE value="增加量化模块" />
+    <option name="LAST_COMMIT_MESSAGE" value="增加量化模块" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
       <breakpoints>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py</url>
-          <option name="timeStamp" value="1" />
-        </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/JointLK/modeling/modeling_encoder.py</url>
           <option name="timeStamp" value="3" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/backend/score.py</url>
-          <line>226</line>
+          <line>228</line>
           <option name="timeStamp" value="11" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
@@ -331,6 +357,10 @@
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$APPLICATION_CONFIG_DIR$/scratches/scratch_1.py</url>
           <option name="timeStamp" value="18" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/JointLK/utils/sag_pool.py</url>
+          <option name="timeStamp" value="19" />
         </line-breakpoint>
       </breakpoints>
       <default-breakpoints>

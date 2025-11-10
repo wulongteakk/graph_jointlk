@@ -9,6 +9,10 @@ import asyncio
 import logging
 import json
 
+from src.shared.constants import (
+    EXTRACTION_PROMPT_TEMPLATE, # 导入新的模板
+
+)
 from json.decoder import JSONDecodeError
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
 
@@ -725,7 +729,6 @@ class LLMGraphTransformer:
 
         return json_str
 
-
     def process_response(self, document: Document) -> GraphDocument:
         """
         Processes a single document, transforming it into a graph document using
@@ -734,29 +737,38 @@ class LLMGraphTransformer:
         text = document.page_content
         # 假设 text 是 JSON 格式的字符串，需要先解析它
 
-        raw_schema = self.chain.invoke({"input": text})
+        input_vars = {
+            "input": text,
+            "node_labels": str(self.allowed_nodes),
+            "rel_types": str(self.allowed_relationships)
+        }
+        raw_schema = self.chain.invoke(input_vars)
         logging.info(f"LLM response: {raw_schema}")
         if self._function_call:
 
             raw_schema = cast(Dict[Any, Any], raw_schema)
             nodes, relationships = _convert_to_graph_document(raw_schema)
         else:
-            nodes_set = set()
+            nodes = []
             relationships = []
 
             try:
-                # 直接使用 raw_schema.content 解析 JSON
-                parsed_json = json.loads(raw_schema.content)
+                # 尝试解析LLM的响应
+                raw_content = raw_schema.content
+                # 去除代码块标记
+                if "```json" in raw_content:
+                    raw_content = raw_content.split("```json")[1].split("```")[0]
+                elif "```" in raw_content:
+                    raw_content = raw_content.replace("```", "").strip()
+
+                parsed_json = json.loads(raw_content)
+
             except json.JSONDecodeError as e:
                 # 尝试修复不完整的JSON
                 logging.error(f"原始JSON解析失败: {e}")
                 logging.info("尝试修复不完整的JSON...")
 
-
-
-
                 fixed_json_str = self._fix_incomplete_json(raw_schema.content)
-
                 try:
                     parsed_json = json.loads(fixed_json_str)
                     logging.warning(f"成功修复JSON: {fixed_json_str[:100]}...")
@@ -766,39 +778,84 @@ class LLMGraphTransformer:
                     logging.error(f"修复后的JSON尝试: {fixed_json_str}")
                     return GraphDocument(nodes=[], relationships=[], source=document)
 
-            for rel in parsed_json:
-                # 确保所有必要字段都存在
-                if "head" in rel and "head_type" in rel and "tail" in rel and "tail_type" in rel and "relation" in rel:
-                    # 添加节点到集合中进行去重
-                    nodes_set.add((rel["head"], rel["head_type"]))
-                    nodes_set.add((rel["tail"], rel["tail_type"]))
+            # ==================================================================
+            # START: 新的 JSON 解析逻辑 (用于建筑安全 Schema)
+            # ==================================================================
+            if isinstance(parsed_json, dict) and "entities" in parsed_json and "relations" in parsed_json:
+                logging.info("检测到 'entities' 和 'relations' 键，使用新的建筑安全 Schema 解析器")
 
-                    # 创建关系
-                    source_node = Node(id=rel["head"], type=rel["head_type"])
-                    target_node = Node(id=rel["tail"], type=rel["tail_type"])
-                    relationships.append(
-                        Relationship(
-                            source=source_node, target=target_node, type=rel["relation"]
+                nodes_map = {}  # 用于快速查找
+                # 1. 解析实体 (Nodes)
+                for entity in parsed_json.get("entities", []):
+                    if entity and "id" in entity and "type" in entity and "name" in entity:
+                        node_id = entity["id"]
+                        node_type = entity["type"]
+                        node_name = entity["name"]
+                        properties = entity.get("properties", {})
+
+                        # 将 name 存储为属性，保持 id 的唯一性
+                        if "name" not in properties:
+                            properties["name"] = node_name
+
+                        new_node = Node(id=node_id, type=node_type, properties=properties)
+                        nodes.append(new_node)
+                        nodes_map[node_id] = new_node
+                    else:
+                        logging.warning(f"跳过格式无效的实体: {entity}")
+
+                # 2. 解析关系 (Relationships)
+                for relation in parsed_json.get("relations", []):
+                    if relation and "from_id" in relation and "type" in relation and "to_id" in relation:
+                        from_id = relation["from_id"]
+                        to_id = relation["to_id"]
+                        rel_type = relation["type"]
+
+                        # 从 map 中查找源节点和目标节点
+                        source_node = nodes_map.get(from_id)
+                        target_node = nodes_map.get(to_id)
+
+                        if source_node and target_node:
+                            relationships.append(
+                                Relationship(
+                                    source=source_node,
+                                    target=target_node,
+                                    type=rel_type.replace(" ", "_").upper()  # 保持与旧逻辑一致
+                                )
+                            )
+                        else:
+                            logging.warning(f"跳过关系，因为未找到源节点 '{from_id}' 或目标节点 '{to_id}': {relation}")
+                    else:
+                        logging.warning(f"跳过格式无效的关系: {relation}")
+
+            # ==================================================================
+            # FALLBACK: 旧的扁平 JSON 列表解析逻辑
+            # ==================================================================
+            elif isinstance(parsed_json, list):
+                logging.warning("检测到旧的扁平关系列表格式，使用旧的解析器")
+                nodes_set = set()
+                for rel in parsed_json:
+                    if rel and "head" in rel and "head_type" in rel and "tail" in rel and "tail_type" in rel and "relation" in rel:
+                        # 添加节点到集合中进行去重
+                        nodes_set.add((rel["head"], rel["head_type"]))
+                        nodes_set.add((rel["tail"], rel["tail_type"]))
+
+                        # 创建关系
+                        source_node = Node(id=rel["head"], type=rel["head_type"])
+                        target_node = Node(id=rel["tail"], type=rel["tail_type"])
+                        relationships.append(
+                            Relationship(
+                                source=source_node, target=target_node, type=rel["relation"]
+                            )
                         )
-                    )
-                else:
-                    logging.warning(f"Skipping invalid relation: {rel}")
-            nodes = [Node(id=el[0], type=el[1]) for el in list(nodes_set)]
-            ##
-            # for rel in parsed_json:
-            #     # Nodes need to be deduplicated using a set
-            #     nodes_set.add((rel["head"], rel["head_type"]))
-            #     nodes_set.add((rel["tail"], rel["tail_type"]))
-            #
-            #     source_node = Node(id=rel["head"], type=rel["head_type"])
-            #     target_node = Node(id=rel["tail"], type=rel["tail_type"])
-            #     relationships.append(
-            #         Relationship(
-            #             source=source_node, target=target_node, type=rel["relation"]
-            #         )
-            #     )
-            # Create nodes list
-            # nodes = [Node(id=el[0], type=el[1]) for el in list(nodes_set)]
+                    else:
+                        logging.warning(f"Skipping invalid relation (old format): {rel}")
+                nodes = [Node(id=el[0], type=el[1]) for el in list(nodes_set)]
+
+            else:
+                logging.error(f"无法识别的LLM JSON输出格式: {parsed_json}")
+            # ==================================================================
+            # END: 修改的 JSON 解析逻辑
+            # ==================================================================
 
         # Strict mode filtering
         if self.strict_mode and (self.allowed_nodes or self.allowed_relationships):
@@ -811,14 +868,14 @@ class LLMGraphTransformer:
                     rel
                     for rel in relationships
                     if rel.source.type.lower() in lower_allowed_nodes
-                    and rel.target.type.lower() in lower_allowed_nodes
+                       and rel.target.type.lower() in lower_allowed_nodes
                 ]
             if self.allowed_relationships:
                 relationships = [
                     rel
                     for rel in relationships
                     if rel.type.lower()
-                    in [el.lower() for el in self.allowed_relationships]
+                       in [el.lower() for el in self.allowed_relationships]
                 ]
 
         return GraphDocument(nodes=nodes, relationships=relationships, source=document)
@@ -843,7 +900,12 @@ class LLMGraphTransformer:
         graph document.
         """
         text = document.page_content
-        raw_schema = await self.chain.ainvoke({"input": text})
+        input_vars = {
+            "input": text,
+            "node_labels": str(self.allowed_nodes),
+            "rel_types": str(self.allowed_relationships)
+        }
+        raw_schema = await self.chain.ainvoke(input_vars)
         raw_schema = cast(Dict[Any, Any], raw_schema)
         nodes, relationships = _convert_to_graph_document(raw_schema)
 
@@ -866,6 +928,23 @@ class LLMGraphTransformer:
                     if rel.type.lower()
                     in [el.lower() for el in self.allowed_relationships]
                 ]
+
+
+            node_types = set(node.type for node in nodes)
+
+            rel_types_set = set(rel.type for rel in relationships)
+            rel_type_labels = {rel_type: i for i, rel_type in enumerate(rel_types_set)}
+
+            for rel in relationships:
+                label = rel_type_labels[rel.type]
+                if rel.properties is None:
+                    rel.properties = {}
+                rel.properties['type_label'] = label
+
+            document.metadata['node_types_count'] = len(node_types)
+            document.metadata['relationship_types_count'] = len(rel_types_set)
+            document.metadata['relationship_type_labels'] = rel_type_labels
+
 
         return GraphDocument(nodes=nodes, relationships=relationships, source=document)
 

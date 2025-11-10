@@ -1,6 +1,6 @@
 from typing import Annotated, Dict
 
-from fastapi import File, UploadFile, Form, Body
+from fastapi import File, UploadFile, Form, Body, HTTPException
 from fastapi import FastAPI, Request
 from fastapi_health import health
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,9 +11,10 @@ from neo4j.graph import Node, Relationship
 from src.llm_api_request import ChatRequest
 from src.main import *
 # from src.QA_integration import *
+from src.risk_analysis import get_risk_metrics, get_risk_probability_assessment
 from src.QA_integration_new import *
 from src.shared.common_fn import *
-
+from src.logger import logger, CustomLogger
 import uvicorn
 import asyncio
 import base64
@@ -22,6 +23,7 @@ from langchain_google_vertexai import ChatVertexAI
 from src.api_response import create_api_response
 from src.graphDB_dataAccess import graphDBdataAccess
 from src.graph_query import get_graph_results
+from src.QA_integration_new import PruningItems
 from src.chunkid_entities import get_entities_from_chunkids
 from src.post_processing import create_fulltext, create_entity_embedding
 from sse_starlette.sse import EventSourceResponse
@@ -29,14 +31,14 @@ import json
 from starlette.middleware.sessions import SessionMiddleware
 from google.oauth2.credentials import Credentials
 import os
-from src.logger import CustomLogger
+
 from datetime import datetime, timezone
 from fastapi.middleware.gzip import GZipMiddleware
 import time
 import gc
 from collections import defaultdict, deque
 
-logger = CustomLogger()
+
 CHUNK_DIR = os.path.join(os.path.dirname(__file__), "chunks")
 MERGED_DIR = os.path.join(os.path.dirname(__file__), "merged_files")
 
@@ -316,9 +318,8 @@ async def post_processing(uri=Form(None), userName=Form(None), password=Form(Non
 @app.post("/chat_bot")
 async def chat_bot(uri=Form(None), model=Form(None), userName=Form(None), password=Form(None), database=Form(None),
                    question=Form(None), document_names=Form(None), session_id=Form(None), mode=Form(None), use_jointlk: bool = Form(True)):
-    print("score use_jointlk is", use_jointlk)
-    print("mode is", mode)
-    use_jointlk = True
+
+
 
     qa_rag_start_time = time.time()
     subgraph_result = get_graph_results(
@@ -328,6 +329,11 @@ async def chat_bot(uri=Form(None), model=Form(None), userName=Form(None), passwo
         document_names
     )
 
+    final_items,top_k_items=PruningItems(
+        use_jointlk=use_jointlk,
+        question=question,
+        subgraph_result=subgraph_result,
+    )
 
     try:
         if mode == "graph":
@@ -335,9 +341,8 @@ async def chat_bot(uri=Form(None), model=Form(None), userName=Form(None), passwo
                                refresh_schema=True)
         else:
             graph = create_graph_database_connection(uri, userName, password, database)
-        print("question is", graph)
         result = await asyncio.to_thread(QA_RAG, graph=graph, model=model, question=question,
-                                         document_names=document_names, session_id=session_id, mode=mode, use_jointlk=use_jointlk, subgraph_result=subgraph_result)
+                                         document_names=document_names, session_id=session_id, mode=mode, final_items=final_items)
 
         total_call_time = time.time() - qa_rag_start_time
         logging.info(f"Total Response time is  {total_call_time:.2f} seconds")
@@ -392,7 +397,6 @@ async def graph_query(
             password=password,
             document_names=document_names
         )
-
         josn_obj = {'api_name': 'graph_query', 'db_url': uri, 'document_names': document_names,
                     'logging_time': formatted_time(datetime.now(timezone.utc))}
         logger.log_struct(josn_obj)
@@ -406,7 +410,43 @@ async def graph_query(
     finally:
         gc.collect()
 
+@app.post("/pruning_graph_query")
+async def pruning_graph_query(
+        uri: str = Form(None),
+        userName: str = Form(None),
+        password: str = Form(None),
+        document_names: str = Form(None),
+        question: str = Form(None),
+        use_jointlk: bool = Form(None),
 
+):
+    try:
+        print(document_names)
+        subgraph_result = await asyncio.to_thread(
+            get_graph_results,
+            uri=uri,
+            username=userName,
+            password=password,
+            document_names=document_names
+        )
+        final_items, top_k_items = PruningItems(
+            use_jointlk=use_jointlk,
+            question=question,
+            subgraph_result=subgraph_result,
+        )
+
+        josn_obj = {'api_name': 'pruning_graph_query', 'db_url': uri, 'document_names': document_names,
+                    'logging_time': formatted_time(datetime.now(timezone.utc))}
+        logger.log_struct(josn_obj)
+        return create_api_response('Success', data=final_items)
+    except Exception as e:
+        job_status = "Failed"
+        message = "Unable to get pruning graph query response"
+        error_message = str(e)
+        logging.exception(f'Exception in graph query: {error_message}')
+        return create_api_response(job_status, message=message, error=error_message)
+    finally:
+        gc.collect()
 
 @app.post("/clear_chat_bot")
 async def clear_chat_bot(uri=Form(None), userName=Form(None), password=Form(None), database=Form(None),
@@ -700,6 +740,64 @@ def generate_text(chat_request: Annotated[ChatRequest, Body()]) -> Dict:
     )
 
     return response.dict()
+
+
+@app.post("/get_risk_metrics")
+async def api_get_risk_metrics(
+    uri: str = Form(...),
+    userName: str = Form(...),
+    password: str = Form(...),
+    database: str = Form(None)
+):
+    """
+    (阶段三 API): 从知识图谱提取结构化风险指标。
+    """
+    try:
+        graph = Neo4jGraph(url=uri, database=database, username=userName, password=password)
+        result = get_risk_metrics(graph)
+        graph.close()
+        if not graph._driver._closed:
+            logging.info(f"closing connection for risk_metrics api")
+            graph._driver.close()
+        return {"data": result, "status": 200}
+    except Exception as e:
+        logging.error(f"获取风险指标失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/assess_risk_probability")
+async def api_assess_risk_probability(
+    uri: str = Form(...),
+    userName: str = Form(...),
+    password: str = Form(...),
+    database: str = Form(None),
+    model: str = Form(...),
+    query: str = Form(...)  # 例如 "评估A区深基坑明天的风险"
+):
+    """
+    (阶段四 API): 对特定查询进行动态风险概率量化 (RAG)。
+    """
+    try:
+        # TODO: 从用户查询中提取核心关键词 (例如 "A区深基坑")
+        # 为简化，我们暂时直接使用整个查询字符串
+        # 在生产中，您可能需要先用 LLM 提取查询的核心实体
+        core_query = query  # 假设 query 已经包含了核心词，如 "A区深基坑"
+
+        graph = Neo4jGraph(url=uri, database=database, username=userName, password=password)
+        result = get_risk_probability_assessment(graph, core_query, model)
+        graph.close()
+        if not graph._driver._closed:
+            logging.info(f"closing connection for assess_risk api")
+            graph._driver.close()
+
+        if result["status"] == "success":
+            return {"data": result["assessment"], "status": 200}
+        else:
+            raise HTTPException(status_code=404, detail=result["message"])
+
+    except Exception as e:
+        logging.error(f"评估风险概率失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     port = int(os.environ.get('TCP_PORT', 8000))
