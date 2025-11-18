@@ -35,7 +35,7 @@ CHAT_TOKEN_CUT_OFF = {
      ("openai-gpt-3.5",'azure_ai_gpt_35',"gemini-1.0-pro","gemini-1.5-pro","groq-llama3",'groq_llama3_70b','anthropic_claude_3_5_sonnet','fireworks_llama_v3_70b','bedrock_claude_3_5_sonnet', ) : 4, 
      ("openai-gpt-4","diffbot" ,'azure_ai_gpt_4o',"openai-gpt-4o") : 28,
      ("ollama_llama3") : 2  
-} 
+}
 
 EXTRACTION_PROMPT_TEMPLATE = """
 You are a top-tier algorithm designed for extracting information in structured formats to build a knowledge graph.
@@ -266,6 +266,7 @@ CONSTRUCTION_REL_TYPES = [
     "执行", "使用", "产生", "存在", "状态是", "发生在", "关联于"
 ]
 
+
 # ------------------------------------------------------------------------------
 # 阶段二：知识提取 Prompt (LLM as "Information Extractor")
 # ------------------------------------------------------------------------------
@@ -324,7 +325,7 @@ Schema (本体) 定义:
 # ------------------------------------------------------------------------------
 HAZARD_SCORING_PROMPT_TEMPLATE = """
 你是一个资深的建筑安全评估专家。
-请对以下描述的建筑安全隐患，按1-10分进行【严重性】打分（1分为轻微，10分为可能导致致命事故）。
+请对以下描述的建筑安全隐患，按1-5分进行【严重性】打分（1分为轻微，5分为可能导致致命事故）。
 请仅返回一个JSON对象，包含分数和简短理由。
 
 隐患描述: "{hazard_description}"

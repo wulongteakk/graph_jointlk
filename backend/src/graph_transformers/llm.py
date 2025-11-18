@@ -735,7 +735,8 @@ class LLMGraphTransformer:
         an LLM based on the model's schema and constraints.
         """
         text = document.page_content
-        # 假设 text 是 JSON 格式的字符串，需要先解析它
+
+        logging.info(f"text是啥{text}")
 
         input_vars = {
             "input": text,
@@ -802,7 +803,7 @@ class LLMGraphTransformer:
                         nodes_map[node_id] = new_node
                     else:
                         logging.warning(f"跳过格式无效的实体: {entity}")
-
+                logging.info(f"解析到的nodes map: {nodes_map}")
                 # 2. 解析关系 (Relationships)
                 for relation in parsed_json.get("relations", []):
                     if relation and "from_id" in relation and "type" in relation and "to_id" in relation:
@@ -826,7 +827,7 @@ class LLMGraphTransformer:
                             logging.warning(f"跳过关系，因为未找到源节点 '{from_id}' 或目标节点 '{to_id}': {relation}")
                     else:
                         logging.warning(f"跳过格式无效的关系: {relation}")
-
+                logging.info(f"解析到的relationships: {relationships}")
             # ==================================================================
             # FALLBACK: 旧的扁平 JSON 列表解析逻辑
             # ==================================================================

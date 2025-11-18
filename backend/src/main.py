@@ -398,12 +398,7 @@ def processing_chunks(chunkId_chunkDoc_list, graph, file_name, model, allowedNod
     chunks_and_graphDocuments_list = get_chunk_and_graphDocument(graph_documents, chunkId_chunkDoc_list)
     merge_relationship_between_chunk_and_entites(graph, chunks_and_graphDocuments_list)
 
-    # ==============================================================================
-    # START: 修复 UnboundLocalError
-    # ==============================================================================
-    # 我们需要将两个循环合并。
-    # 原始代码在 graph_documents 为空时会失败，
-    # 并且错误地只循环最后一个 graph_document 的关系。
+
 
     distinct_nodes = set()
     relations = []
