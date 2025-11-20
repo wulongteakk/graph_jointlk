@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="增加量化模块">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="量化模块更新">
       <change afterPath="$PROJECT_DIR$/backend/src/graph_export.py" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/backend/src/risk_analysis.py" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/context/GraphViewContext.tsx" afterDir="false" />
@@ -323,7 +323,15 @@
       <option name="project" value="LOCAL" />
       <updated>1762764945486</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="量化模块更新">
+      <option name="closed" value="true" />
+      <created>1763465582008</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1763465582008</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -348,7 +356,8 @@
     <MESSAGE value="qa_gnn初级可用" />
     <MESSAGE value="剪枝后的节点和关系作为上下文输入进大模型" />
     <MESSAGE value="增加量化模块" />
-    <option name="LAST_COMMIT_MESSAGE" value="增加量化模块" />
+    <MESSAGE value="量化模块更新" />
+    <option name="LAST_COMMIT_MESSAGE" value="量化模块更新" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

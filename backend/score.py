@@ -326,7 +326,8 @@ async def chat_bot(uri=Form(None), model=Form(None), userName=Form(None), passwo
         uri,
         userName,
         password,
-        document_names
+        document_names,
+        database,
     )
 
     final_items,top_k_items=PruningItems(
@@ -386,6 +387,7 @@ async def graph_query(
         uri: str = Form(None),
         userName: str = Form(None),
         password: str = Form(None),
+        database: str = Form(None),
         document_names: str = Form(None),
 ):
     try:
@@ -395,6 +397,7 @@ async def graph_query(
             uri=uri,
             username=userName,
             password=password,
+            database=database,
             document_names=document_names
         )
         josn_obj = {'api_name': 'graph_query', 'db_url': uri, 'document_names': document_names,
@@ -415,6 +418,7 @@ async def pruning_graph_query(
         uri: str = Form(None),
         userName: str = Form(None),
         password: str = Form(None),
+        database: str = Form(None),
         document_names: str = Form(None),
         question: str = Form(None),
         use_jointlk: bool = Form(None),
@@ -427,7 +431,8 @@ async def pruning_graph_query(
             uri=uri,
             username=userName,
             password=password,
-            document_names=document_names
+            document_names=document_names,
+            database=database,
         )
         final_items, top_k_items = PruningItems(
             use_jointlk=use_jointlk,

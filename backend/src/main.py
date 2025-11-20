@@ -419,12 +419,12 @@ def processing_chunks(chunkId_chunkDoc_list, graph, file_name, model, allowedNod
             for relation in graph_document.relationships:
                 relations.append(relation.type)
 
-    # ==============================================================================
-    # END: 修复
-    # ==============================================================================
+
 
     node_count += len(distinct_nodes)
     rel_count += len(relations)
+    print(f'node :{distinct_nodes}')
+    print(f'relations :{relations}')
     print(f'node count internal func:{node_count}')
     print(f'relation count internal func:{rel_count}')
     return node_count, rel_count

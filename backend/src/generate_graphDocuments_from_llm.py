@@ -137,13 +137,6 @@ def generate_graphDocuments(model: str, graph: Neo4jGraph, chunkId_chunkDoc_list
         f"隐患打分完成。总共对 {total_hazards_scored} 个隐患节点进行了打分，HFACS 风险因子属性覆盖 {total_hfacs_enriched} 个节点。"
     )
 
-    # 5. 将结果写入 Neo4j
-    try:
-        if graph and graph_documents:
-            graph.add_graph_documents(graph_documents)
-            logging.info("已将生成的图文档写入 Neo4j。")
-    except Exception as e:
-        logging.error(f"写入 Neo4j 失败: {e}", exc_info=True)
 
-    logging.info(f"graph_documents = {len(graph_documents)}")
+    logging.info(f"风险因子匹配后得到的graph_documents: {graph_documents}")
     return graph_documents

@@ -749,6 +749,7 @@ class LLMGraphTransformer:
 
             raw_schema = cast(Dict[Any, Any], raw_schema)
             nodes, relationships = _convert_to_graph_document(raw_schema)
+            logging.info(f"_function_call=true,nodes: {nodes}")
         else:
             nodes = []
             relationships = []
@@ -779,84 +780,28 @@ class LLMGraphTransformer:
                     logging.error(f"修复后的JSON尝试: {fixed_json_str}")
                     return GraphDocument(nodes=[], relationships=[], source=document)
 
-            # ==================================================================
-            # START: 新的 JSON 解析逻辑 (用于建筑安全 Schema)
-            # ==================================================================
-            if isinstance(parsed_json, dict) and "entities" in parsed_json and "relations" in parsed_json:
-                logging.info("检测到 'entities' 和 'relations' 键，使用新的建筑安全 Schema 解析器")
 
-                nodes_map = {}  # 用于快速查找
-                # 1. 解析实体 (Nodes)
-                for entity in parsed_json.get("entities", []):
-                    if entity and "id" in entity and "type" in entity and "name" in entity:
-                        node_id = entity["id"]
-                        node_type = entity["type"]
-                        node_name = entity["name"]
-                        properties = entity.get("properties", {})
 
-                        # 将 name 存储为属性，保持 id 的唯一性
-                        if "name" not in properties:
-                            properties["name"] = node_name
+            nodes_set = set()
+            for rel in parsed_json:
+                if rel and "head" in rel and "head_type" in rel and "tail" in rel and "tail_type" in rel and "relation" in rel:
+                    # 添加节点到集合中进行去重
+                    nodes_set.add((rel["head"], rel["head_type"]))
+                    nodes_set.add((rel["tail"], rel["tail_type"]))
 
-                        new_node = Node(id=node_id, type=node_type, properties=properties)
-                        nodes.append(new_node)
-                        nodes_map[node_id] = new_node
-                    else:
-                        logging.warning(f"跳过格式无效的实体: {entity}")
-                logging.info(f"解析到的nodes map: {nodes_map}")
-                # 2. 解析关系 (Relationships)
-                for relation in parsed_json.get("relations", []):
-                    if relation and "from_id" in relation and "type" in relation and "to_id" in relation:
-                        from_id = relation["from_id"]
-                        to_id = relation["to_id"]
-                        rel_type = relation["type"]
-
-                        # 从 map 中查找源节点和目标节点
-                        source_node = nodes_map.get(from_id)
-                        target_node = nodes_map.get(to_id)
-
-                        if source_node and target_node:
-                            relationships.append(
-                                Relationship(
-                                    source=source_node,
-                                    target=target_node,
-                                    type=rel_type.replace(" ", "_").upper()  # 保持与旧逻辑一致
-                                )
-                            )
-                        else:
-                            logging.warning(f"跳过关系，因为未找到源节点 '{from_id}' 或目标节点 '{to_id}': {relation}")
-                    else:
-                        logging.warning(f"跳过格式无效的关系: {relation}")
-                logging.info(f"解析到的relationships: {relationships}")
-            # ==================================================================
-            # FALLBACK: 旧的扁平 JSON 列表解析逻辑
-            # ==================================================================
-            elif isinstance(parsed_json, list):
-                logging.warning("检测到旧的扁平关系列表格式，使用旧的解析器")
-                nodes_set = set()
-                for rel in parsed_json:
-                    if rel and "head" in rel and "head_type" in rel and "tail" in rel and "tail_type" in rel and "relation" in rel:
-                        # 添加节点到集合中进行去重
-                        nodes_set.add((rel["head"], rel["head_type"]))
-                        nodes_set.add((rel["tail"], rel["tail_type"]))
-
-                        # 创建关系
-                        source_node = Node(id=rel["head"], type=rel["head_type"])
-                        target_node = Node(id=rel["tail"], type=rel["tail_type"])
-                        relationships.append(
-                            Relationship(
-                                source=source_node, target=target_node, type=rel["relation"]
-                            )
+                    # 创建关系
+                    source_node = Node(id=rel["head"], type=rel["head_type"])
+                    target_node = Node(id=rel["tail"], type=rel["tail_type"])
+                    relationships.append(
+                        Relationship(
+                            source=source_node, target=target_node, type=rel["relation"]
                         )
-                    else:
-                        logging.warning(f"Skipping invalid relation (old format): {rel}")
-                nodes = [Node(id=el[0], type=el[1]) for el in list(nodes_set)]
+                    )
+                else:
+                    logging.warning(f"Skipping invalid relation (old format): {rel}")
+            nodes = [Node(id=el[0], type=el[1]) for el in list(nodes_set)]
+            logging.info(f"_function_call=false,nodes: {nodes}")
 
-            else:
-                logging.error(f"无法识别的LLM JSON输出格式: {parsed_json}")
-            # ==================================================================
-            # END: 修改的 JSON 解析逻辑
-            # ==================================================================
 
         # Strict mode filtering
         if self.strict_mode and (self.allowed_nodes or self.allowed_relationships):
@@ -894,6 +839,7 @@ class LLMGraphTransformer:
             Sequence[GraphDocument]: The transformed documents as graphs.
         """
         return [self.process_response(document) for document in documents]
+
 
     async def aprocess_response(self, document: Document) -> GraphDocument:
         """
