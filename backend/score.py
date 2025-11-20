@@ -790,10 +790,10 @@ async def api_assess_risk_probability(
 
         graph = Neo4jGraph(url=uri, database=database, username=userName, password=password)
         result = get_risk_probability_assessment(graph, core_query, model)
-        graph.close()
-        if not graph._driver._closed:
-            logging.info(f"closing connection for assess_risk api")
-            graph._driver.close()
+        #graph.close()
+        #if not graph._driver._closed:
+            #logging.info(f"closing connection for assess_risk api")
+            #graph._driver.close()
 
         if result["status"] == "success":
             return {"data": result["assessment"], "status": 200}

@@ -70,6 +70,55 @@ def match_hfacs_risk_factor(entity_name: str) -> Optional[Dict[str, Any]]:
         )
     return best_match
 
+def classify_risk_factor_with_llm(entity_name: str, model: str) -> Optional[Dict[str, Any]]:
+    """
+    当基于词表的 HFACS 模糊匹配失败时，调用大模型判断该实体是否属于安全风险因子/隐患，
+    并补全 HFACS 相关属性。
+    """
+    try:
+        llm, _ = get_llm(model)
+        prompt = ChatPromptTemplate.from_template(HFACS_CLASSIFICATION_PROMPT_TEMPLATE)
+        chain = prompt | llm
+
+        response = chain.invoke({"entity_name": entity_name})
+        content = response.content
+
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            content = content.replace("```", "").strip()
+
+        data = json.loads(content)
+    except Exception as e:
+        logging.warning(f"LLM 判定 HFACS 风险因子失败，实体: {entity_name}, 错误: {e}")
+        return None
+
+    if not data or not data.get("is_risk_factor"):
+        return None
+
+    severity_level = data.get("severity_level")
+    try:
+        if severity_level is not None:
+            severity_level = int(severity_level)
+    except ValueError:
+        logging.warning(f"无法解析严重程度为整数，实体: {entity_name}, 输入值: {severity_level}")
+
+    classification = {
+        "risk_name": data.get("risk_name") or entity_name,
+        "risk_domain": data.get("risk_domain"),
+        "hfacs_level_1": data.get("hfacs_level_1"),
+        "hfacs_level_2": data.get("hfacs_level_2"),
+        "severity_level": severity_level,
+        "severity_description": data.get("reason"),
+        "hfacs_match_keyword": "llm_classified",
+        "hfacs_match_score": data.get("confidence", 0),
+    }
+
+    logging.info(
+        f"LLM 判定实体[{entity_name}] 为 HFACS 风险因子，一级 {classification['hfacs_level_1']}，二级 {classification['hfacs_level_2']}。"
+    )
+
+    return classification
 
 
 
@@ -126,16 +175,18 @@ def generate_graphDocuments(model: str, graph: Neo4jGraph, chunkId_chunkDoc_list
             # HFACS 风险因子匹配（隐患/风险/作业/任务等场景）
 
             match = match_hfacs_risk_factor(node_name)
+            if not match:
+                match = classify_risk_factor_with_llm(node_name, model)
             if match:
                 if node.properties:
                     node.properties.update(match)
                 else:
                     node.properties = match
-                total_hfacs_enriched += 1
 
     logging.info(
         f"隐患打分完成。总共对 {total_hazards_scored} 个隐患节点进行了打分，HFACS 风险因子属性覆盖 {total_hfacs_enriched} 个节点。"
     )
+
 
 
     logging.info(f"风险因子匹配后得到的graph_documents: {graph_documents}")

@@ -290,16 +290,35 @@ def get_graph_results(uri, username, password, document_names, database=None):
     """
     try:
         logging.info(f"Starting graph query process")
-        driver = get_graphDB_driver(uri, username, password)  
-        document_names= list(map(str.strip, json.loads(document_names)))
+        driver = get_graphDB_driver(uri, username, password)
+
+        try:
+            if document_names:
+                loaded_names = json.loads(document_names)
+                if isinstance(loaded_names, str):
+                    loaded_names = [loaded_names]
+                document_names = list(map(str.strip, loaded_names))
+            else:
+                document_names = []
+        except Exception as parse_error:
+            logging.warning(
+                "graph_query module: failed to parse document_names=%s, fallback to completed documents. Error=%s",
+                document_names,
+                parse_error,
+            )
+            document_names = []
+
+        if not document_names:
+            document_names = get_completed_documents(driver)
+
         query_type = "docChunkEntities"
         query = get_cypher_query(QUERY_MAP, query_type, document_names)
         records, summary, keys = execute_query(driver, query, document_names, database=database)
 
         document_nodes = extract_node_elements(records)
-        logging.info(f"提取出来的document_nodes{document_nodes}")
+        logging.info(f"提取出来的{document_nodes}")
         document_relationships = extract_relationships(records)
-        logging.info(f"提取出来的document_relationships{document_relationships}")
+        logging.info(f"提取出来的{document_relationships}")
         print(query)
 
         logging.info(f"no of nodes : {len(document_nodes)}")

@@ -3,6 +3,7 @@ from langchain.graphs import Neo4jGraph
 import os
 from dotenv import load_dotenv
 import logging
+import re
 from langchain_community.chat_message_histories import Neo4jChatMessageHistory
 from src.llm import get_llm
 from src.shared.common_fn import load_embedding_model
@@ -22,7 +23,7 @@ from langchain.retrievers.document_compressors import DocumentCompressorPipeline
 from langchain_text_splitters import TokenTextSplitter
 from langchain_core.messages import HumanMessage,AIMessage,SystemMessage
 from src.shared.constants import *
-from src.llm import get_llm
+from src.risk_analysis import get_risk_probability_assessment, get_risk_metrics
 from langchain.chains import GraphCypherQAChain
 import json
 try:
@@ -217,6 +218,66 @@ def get_total_tokens(ai_response,llm):
         total_tokens = 0
     return total_tokens
 
+def is_probability_question(question: str) -> bool:
+    """通过关键词和简单正则判断是否为风险概率类提问。"""
+    if not question:
+        return False
+
+    probability_keywords = ["概率", "几率", "可能性", "风险多大", "发生几成", "风险大小", "风险评估", "发生的可能"]
+    keyword_hit = any(keyword in question for keyword in probability_keywords)
+    regex_hit = re.search(r"发生.*概率|概率.*发生", question)
+    return keyword_hit or bool(regex_hit)
+
+
+def build_risk_probability_response(graph, model, question: str):
+    """
+    结合图谱指标与 RAG 风险评估，生成结构化的风险概率回答。
+    """
+    metrics_result = get_risk_metrics(graph)
+    probability_result = get_risk_probability_assessment(graph, question, model)
+
+    lines = ["【风险概率评估】"]
+    risk_info = {
+        "metrics": None,
+        "assessment": None,
+        "metrics_status": metrics_result.get("status"),
+        "probability_status": probability_result.get("status"),
+    }
+
+    if metrics_result.get("status") == "success":
+        metrics = metrics_result.get("metrics", {})
+        risk_info["metrics"] = metrics
+        total = metrics.get("total_hazards")
+        closed = metrics.get("closed_hazards")
+        closure_rate = metrics.get("closure_rate_percent")
+        lines.append(
+            f"隐患统计：共 {total if total is not None else 0} 项，已闭环 {closed if closed is not None else 0} 项，闭环率 {closure_rate if closure_rate is not None else 0}%。"
+        )
+        unresolved = metrics.get("unresolved_hazards_by_severity")
+        if unresolved:
+            severity_pairs = ", ".join([f"严重度 {k}: {v} 条" for k, v in unresolved.items()])
+            lines.append(f"按严重度未整改分布：{severity_pairs}。")
+        top_personnel = metrics.get("top_5_high_risk_personnel")
+        if top_personnel:
+            personnel_pairs = ", ".join([f"{name}({count})" for name, count in top_personnel.items()])
+            lines.append(f"高风险人员/班组：{personnel_pairs}。")
+    else:
+        lines.append(f"指标提取失败：{metrics_result.get('message', '未知原因')}。")
+
+    if probability_result.get("status") == "success":
+        assessment = probability_result.get("assessment", {})
+        risk_info["assessment"] = assessment
+        coupling = assessment.get("risk_coupling_analysis")
+        score = assessment.get("quantitative_risk_score")
+        level = assessment.get("accident_probability_level")
+        if coupling:
+            lines.append(f"耦合分析：{coupling}")
+        lines.append(f"量化风险分数：{score if score is not None else 'N/A'}，事故概率等级：{level if level else 'N/A'}。")
+    else:
+        lines.append(f"概率评估未完成：{probability_result.get('message', '未知原因')}。")
+
+    final_message = "\n".join(lines)
+    return final_message, risk_info
 
 def clear_chat_history(graph,session_id):
     history = Neo4jChatMessageHistory(
@@ -404,15 +465,33 @@ def QA_RAG(graph, model, question, document_names,session_id, mode,final_items):
             # 将 SystemMessage 附加到列表中
             messages.append(context_message)
 
-
-
         except Exception as e:
             logging.error(f"Failed to serialize or append pruned graph context: {e}")
             messages.append(SystemMessage(
                 content="[Error: Pruned graph context was available but could not be serialized.]"))
 
+        if is_probability_question(question):
+            llm_for_summary, model_version = get_llm(model)
+            risk_message, risk_info = build_risk_probability_response(graph, model, question)
+            ai_response = AIMessage(content=risk_message)
+            messages.append(ai_response)
+            summarize_and_log(history, messages, llm_for_summary)
 
-
+            return {
+                "session_id": session_id,
+                "message": risk_message,
+                "info": {
+                    "sources": [],
+                    "model": model_version,
+                    "chunkdetails": [],
+                    "total_tokens": 0,
+                    "response_time": 0,
+                    "mode": "risk_probability",
+                    "visualization_data": None,
+                    "risk": risk_info,
+                },
+                "user": "chatbot",
+            }
 
         if mode == "graph":
             graph_chain, qa_llm, model_version = create_graph_chain(model, graph)
