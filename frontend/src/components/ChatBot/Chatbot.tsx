@@ -10,6 +10,7 @@ import ChatBotAvatar from '../../assets/images/chatbot-ai.png';
 import { ChatbotProps, CustomFile, UserCredentials, chunk } from '../../types';
 import { useCredentials } from '../../context/UserCredentials';
 import { chatBotAPI } from '../../services/QnaAPI';
+import { assessRiskProbabilityAPI } from '../../services/RiskAssessmentAPI';
 import { v4 as uuidv4 } from 'uuid';
 import { useFileContext } from '../../context/UsersFiles';
 import InfoModal from './ChatInfoModal';
@@ -163,28 +164,74 @@ const Chatbot: React.FC<ChatbotProps> = (props) => {
     const datetime = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
     const userMessage = { id: Date.now(), user: 'user', message: inputMessage, datetime: datetime };
     setListMessages([...listMessages, userMessage]);
+
+
+    const riskKeywords = ['评估', '概率', '风险量化', '风险分数', '事故概率'];
+    const isRiskAssessmentQuery = riskKeywords.some((keyword) => inputMessage.includes(keyword));
+
     try {
       setInputMessage('');
-      simulateTypingEffect({ reply: ' ' });
-      const chatbotAPI = await chatBotAPI(
-        userCredentials as UserCredentials,
-        inputMessage,
-        sessionId,
-        model,
-        chatMode,
-        selectedFileNames?.map((f) => f.name),
-        use_jointlk,
-      );
-      const chatresponse = chatbotAPI?.response;
-      chatbotReply = chatresponse?.data?.data?.message;
-      chatSources = chatresponse?.data?.data?.info.sources;
-      chatModel = chatresponse?.data?.data?.info.model;
-      chatChunks = chatresponse?.data?.data?.info.chunkdetails;
-      chatTokensUsed = chatresponse?.data?.data?.info.total_tokens;
-      chatTimeTaken = chatresponse?.data?.data?.info.response_time;
-      chatingMode = chatresponse?.data?.data?.info?.mode;
-      cypher_query = chatresponse?.data?.data?.info?.cypher_query ?? '';
-      graphonly_entities = chatresponse?.data.data.info.context ?? [];
+      simulateTypingEffect({
+        reply: ' ',
+        sources: [],
+        model: '',
+        chunk_ids: [],
+        total_tokens: 0,
+        response_time: 0,
+        speaking: false,
+        copying: false,
+        mode: 'thinking',
+        cypher_query: '',
+        graphonly_entities: [],
+      }); // 显示 "思考中..."
+
+      if (isRiskAssessmentQuery) {
+        // --- 分支 1: (阶段四) 调用风险量化 API ---
+        console.log('检测到风险量化意图，调用 assessRiskProbabilityAPI');
+
+        const riskAssessmentResponse = await assessRiskProbabilityAPI(
+          userCredentials as UserCredentials,
+          inputMessage,
+          model
+        );
+
+        chatbotReply = riskAssessmentResponse.response;
+        chatSources = riskAssessmentResponse.sources;
+        chatModel = riskAssessmentResponse.model;
+        chatTimeTaken = riskAssessmentResponse.timeTaken;
+        chatingMode = riskAssessmentResponse.mode;
+        // 重置其他 RAG 特定的值
+        chatChunks = [];
+        chatTokensUsed = 0;
+        cypher_query = '';
+        graphonly_entities = [];
+
+      } else {
+        // --- 分支 2: (标准) 调用现有的 RAG 问答 API ---
+        console.log('标准 RAG 问答意图，调用 chatBotAPI');
+
+        const qnaResponse = await chatBotAPI(
+          userCredentials as UserCredentials,
+          inputMessage,
+          sessionId,
+          model,
+          chatMode,
+          selectedFileNames?.map((f) => f.name)
+        );
+
+        const chatresponse = qnaResponse?.response;
+        chatbotReply = chatresponse?.data?.data?.message;
+        chatSources = chatresponse?.data?.data?.info.sources;
+        chatModel = chatresponse?.data?.data?.info.model;
+        chatChunks = chatresponse?.data?.data?.info.chunkdetails;
+        chatTokensUsed = chatresponse?.data?.data?.info.total_tokens;
+        chatTimeTaken = chatresponse?.data?.data?.info.response_time;
+        chatingMode = chatresponse?.data?.data?.info?.mode;
+        cypher_query = chatresponse?.data?.data?.info?.cypher_query ?? '';
+        graphonly_entities = chatresponse?.data.data.info.context ?? [];
+      }
+
+      // --- 统一的响应处理 ---
       const finalbotReply = {
         reply: chatbotReply,
         sources: chatSources,
@@ -198,11 +245,26 @@ const Chatbot: React.FC<ChatbotProps> = (props) => {
         cypher_query,
         graphonly_entities,
       };
+
       simulateTypingEffect(finalbotReply);
-    } catch (error) {
-      chatbotReply = "Oops! It seems we couldn't retrieve the answer. Please try again later";
+
+    } catch (error: any) {
+      console.error(`Chatbot handleSubmit 失败: ${error}`);
+      chatbotReply = `哎呀！在处理您的请求时遇到了一个错误： ${error.message || "请稍后再试"}`;
       setInputMessage('');
-      simulateTypingEffect({ reply: chatbotReply });
+      simulateTypingEffect({
+        reply: chatbotReply,
+        sources: [],
+        model: '',
+        chunk_ids: [],
+        total_tokens: 0,
+        response_time: 0,
+        speaking: false,
+        copying: false,
+        mode: 'error',
+        cypher_query: '',
+        graphonly_entities: [],
+      });
     }
   };
   const scrollToBottom = () => {

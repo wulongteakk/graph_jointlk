@@ -172,11 +172,26 @@ def get_combined_chunks(chunkId_chunkDoc_list):
         for i in range(0, len(chunkId_chunkDoc_list), chunks_to_combine)
     ]
 
+    combined_file_names = [
+        next(
+            (
+                document["chunk_doc"].metadata.get("fileName")
+                for document in chunkId_chunkDoc_list[i: i + chunks_to_combine]
+                if document.get("chunk_doc") and document["chunk_doc"].metadata
+            ),
+            None,
+        )
+        for i in range(0, len(chunkId_chunkDoc_list), chunks_to_combine)
+    ]
+
     for i in range(len(combined_chunks_page_content)):
         combined_chunk_document_list.append(
             Document(
                 page_content=combined_chunks_page_content[i],
-                metadata={"combined_chunk_ids": combined_chunks_ids[i]},
+                metadata={
+                    "combined_chunk_ids": combined_chunks_ids[i],
+                    "fileName": combined_file_names[i],
+                },
             )
         )
     return combined_chunk_document_list

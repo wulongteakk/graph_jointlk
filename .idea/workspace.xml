@@ -5,10 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="量化模块更新">
-      <change afterPath="$PROJECT_DIR$/backend/src/graph_export.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/risk_analysis.py" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/context/GraphViewContext.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/services/PruningGraphAPI.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
@@ -24,18 +21,12 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/data_utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/score.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/score.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/QA_integration_new.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/QA_integration_new.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graph_transformers/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_transformers/llm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/shared/constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/shared/constants.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/assets/schemas.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/assets/schemas.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/Content.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/Content.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/services/GraphQuery.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/services/GraphQuery.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/types.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/types.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/utils/Constants.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/utils/Constants.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/graph_query.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_query.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/llm.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/logger.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/logger.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/make_relationships.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/make_relationships.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/shared/common_fn.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/shared/common_fn.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/components/ChatBot/Chatbot.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/ChatBot/Chatbot.tsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -331,7 +322,15 @@
       <option name="project" value="LOCAL" />
       <updated>1763465582008</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="量化模块更新">
+      <option name="closed" value="true" />
+      <created>1763643287013</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1763643287013</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

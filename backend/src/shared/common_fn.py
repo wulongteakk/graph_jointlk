@@ -60,14 +60,29 @@ def check_url_source(source_type, yt_url:str=None, wiki_query:str=None):
       raise Exception(e)
 
 
-def get_chunk_and_graphDocument(graph_document_list, chunkId_chunkDoc_list):
-  logging.info("creating list of chunks and graph documents in get_chunk_and_graphDocument func")
-  lst_chunk_chunkId_document=[]
-  for graph_document in graph_document_list:            
-          for chunk_id in graph_document.source.metadata['combined_chunk_ids'] :
-            lst_chunk_chunkId_document.append({'graph_doc':graph_document,'chunk_id':chunk_id})
-                  
-  return lst_chunk_chunkId_document  
+def get_chunk_and_graphDocument(graph_documents, chunkId_chunkDoc_list):
+    logging.info("creating list of chunks and graph documents in get_chunk_and_graphDocument func")
+    chunks_and_graphDocuments_list = []
+
+    for graph_document in graph_documents:
+        try:
+            # 1. 'graph_document.source' 是我们传入的原始 chunk Document
+            # 2. 它的 metadata 包含 'chunk_id' (在 make_relationships.py 中添加)
+            chunk_id = graph_document.source.metadata['id']
+
+            # 3. 下游函数 (merge_relationship_between_chunk_and_entites) 期望一个 *列表*
+            chunk_id_list = [chunk_id]
+
+            chunks_and_graphDocuments_list.append((chunk_id_list, graph_document))
+
+        except KeyError:
+            logging.warning(
+                f"KeyError: 'chunk_id' not found in graph_document.source.metadata. Metadata received: {graph_document.source.metadata}")
+        except Exception as e:
+            logging.error(f"Error processing graph_document in get_chunk_and_graphDocument: {e}")
+
+    logging.info(f"检查这个chunks_and_graphDocuments_list{chunks_and_graphDocuments_list}")
+    return chunks_and_graphDocuments_list
                  
 def create_graph_database_connection(uri, userName, password, database):
   enable_user_agent = os.environ.get("ENABLE_USER_AGENT", "False").lower() in ("true", "1", "yes")

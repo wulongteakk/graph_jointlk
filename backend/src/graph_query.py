@@ -17,6 +17,28 @@ QUERY_MAP = {
     "docChunkEntities"  : " + [chunks] + collect { MATCH p=(c)-[:FIRST_CHUNK]-() RETURN p } + collect { MATCH p=(c)-[:NEXT_CHUNK]-() RETURN p } + collect { MATCH p=(c)-[:SIMILAR]-() RETURN p } + collect { OPTIONAL MATCH p=(c:Chunk)-[:HAS_ENTITY]->(e)-[*0..1]-(:!Chunk) RETURN p }"
 }
 
+DOC_CHUNK_ENTITIES_QUERY = """
+    MATCH (d:Document)
+    WHERE d.fileName IN $document_names
+    OPTIONAL MATCH (d)<-[part_of:PART_OF]-(c:Chunk)
+    OPTIONAL MATCH (c)-[sim:SIMILAR]-(sim_chunk:Chunk)
+    OPTIONAL MATCH (c)-[has:HAS_ENTITY]->(e)
+    OPTIONAL MATCH (e)-[er]-(other)
+      WHERE NOT other:Chunk
+    WITH
+        collect(distinct d) AS docs,
+        collect(distinct c) AS chunks,
+        collect(distinct sim_chunk) AS sim_chunks,
+        collect(distinct e) AS entities,
+        collect(distinct other) AS other_nodes,
+        collect(distinct part_of) AS part_of_rels,
+        collect(distinct sim) AS sim_rels,
+        collect(distinct has) AS has_rels,
+        collect(distinct er) AS entity_rels
+    RETURN docs + chunks + sim_chunks + entities + other_nodes AS nodes,
+           part_of_rels + sim_rels + has_rels + entity_rels AS rels
+"""
+
 QUERY_WITH_DOCUMENT = """
     MATCH docs = (d:Document) 
     WHERE d.fileName IN $document_names
@@ -76,6 +98,11 @@ def get_cypher_query(query_map, query_type, document_names):
     str: A Cypher query string ready to be executed.
     """
     try:
+        if not query_type:
+            query_type = "docChunkEntities"
+
+        if query_type == "docChunkEntities":
+            return DOC_CHUNK_ENTITIES_QUERY.strip()
         query_to_change = query_map[query_type].strip()
         logging.info(f"Query template retrieved for type {query_type}")
 
@@ -91,7 +118,7 @@ def get_cypher_query(query_map, query_type, document_names):
         logging.error("graph_query module: An unexpected error occurred while generating the Cypher query.")
     
 
-def execute_query(driver, query,document_names,doc_limit=None):
+def execute_query(driver, query, document_names, doc_limit=None, database=None):
     """
     Executes a specified query using the Neo4j driver, with parameters based on the presence of a document name.
 
@@ -101,10 +128,18 @@ def execute_query(driver, query,document_names,doc_limit=None):
     try:
         if document_names:
             logging.info(f"Executing query for documents: {document_names}")
-            records, summary, keys = driver.execute_query(query, document_names=document_names)
+            records, summary, keys = driver.execute_query(
+                query,
+                document_names=document_names,
+                database_=database,
+            )
         else:
             logging.info(f"Executing query with a document limit of {doc_limit}")
-            records, summary, keys = driver.execute_query(query, doc_limit=doc_limit)
+            records, summary, keys = driver.execute_query(
+                query,
+                doc_limit=doc_limit,
+                database_=database,
+            )
         return records, summary, keys
     except Exception as e:
         error_message = f"graph_query module: Failed to execute the query. Error: {str(e)}"
@@ -238,7 +273,7 @@ def get_completed_documents(driver):
     return documents
 
 
-def get_graph_results(uri, username, password,document_names):
+def get_graph_results(uri, username, password, document_names, database=None):
     """
     Retrieves graph data by executing a specified Cypher query using credentials and parameters provided.
     Processes the results to extract nodes and relationships and packages them in a structured output.
@@ -259,10 +294,12 @@ def get_graph_results(uri, username, password,document_names):
         document_names= list(map(str.strip, json.loads(document_names)))
         query_type = "docChunkEntities"
         query = get_cypher_query(QUERY_MAP, query_type, document_names)
-        records, summary , keys = execute_query(driver, query, document_names)
-        document_nodes = extract_node_elements(records)
-        document_relationships = extract_relationships(records)
+        records, summary, keys = execute_query(driver, query, document_names, database=database)
 
+        document_nodes = extract_node_elements(records)
+        logging.info(f"提取出来的document_nodes{document_nodes}")
+        document_relationships = extract_relationships(records)
+        logging.info(f"提取出来的document_relationships{document_relationships}")
         print(query)
 
         logging.info(f"no of nodes : {len(document_nodes)}")
