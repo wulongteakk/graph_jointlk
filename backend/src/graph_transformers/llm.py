@@ -1,17 +1,12 @@
-# -*- coding: utf-8 -*-
-# @Time    : 2024/7/14 22:06
-# @Author  : nongbin
-# @FileName: llm.py
-# @Software: PyCharm
-# @Affiliation: tfswufe.edu.cn
+
 
 import asyncio
 import logging
 import json
 
 from src.shared.constants import (
-    EXTRACTION_PROMPT_TEMPLATE, # 导入新的模板
-
+    EXTRACTION_PROMPT_TEMPLATE,  # 导入新的模板
+    HFCSA_CONTROLLED_CLASSIFICATION_PROMPT_TEMPLATE,
 )
 from json.decoder import JSONDecodeError
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
@@ -80,6 +75,16 @@ examples = [
     },
 ]
 
+risk_factor_controlled_classifier_instructions = (
+    "## 5. RiskFactor Controlled Classification\n"
+    "When you identify RiskFactor entities (风险因子/人因/管理缺陷/前提条件/不安全行为), "
+    "record the controlled classification in node properties using the keys "
+    '"layer_code", "category_code", "confidence", "reason", and "evidence". '
+    "Use the following controlled classifier instructions as the rubric while "
+    "keeping the required output format unchanged:\n"
+    f"{HFCSA_CONTROLLED_CLASSIFICATION_PROMPT_TEMPLATE}"
+)
+
 system_prompt = (
     "# Knowledge Graph Instructions for GPT-4\n"
     "## 1. Overview\n"
@@ -114,7 +119,8 @@ system_prompt = (
     "Remember, the knowledge graph should be coherent and easily understandable, "
     "so maintaining consistency in entity references is crucial.\n"
     "## 4. Strict Compliance\n"
-    "Adhere to the rules strictly. Non-compliance will result in termination."
+    "Adhere to the rules strictly. Non-compliance will result in termination.\n"
+
 )
 
 default_prompt = ChatPromptTemplate.from_messages(

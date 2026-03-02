@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="量化模块更新2">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="量化模块更新3">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
@@ -20,13 +20,17 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/data_utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/score.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/score.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/QA_integration.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/QA_integration.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/QA_integration_new.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/QA_integration_new.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graph_query.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_query.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/graph_export.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_export.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/graph_transformers/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_transformers/llm.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/llm.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/risk_analysis.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/risk_analysis.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/shared/constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/shared/constants.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/assets/schemas.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/assets/schemas.json" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -58,37 +62,37 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python 测试.pytest (debug_init.py 内).executor": "Run",
-    "Python.QA_integration_new.executor": "Debug",
-    "Python.cypher.executor": "Run",
-    "Python.debug_init.executor": "Run",
-    "Python.demo.executor": "Run",
-    "Python.hfacs_trans_xltx_json.executor": "Run",
-    "Python.modeling_jointlk.executor": "Run",
-    "Python.score.executor": "Run",
-    "Python.scratch_1.executor": "Run",
-    "Python.test_integrationqa.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "main",
-    "last_opened_file_path": "D:/NEO4J_related/llm-builder/llm/llm-graph-builder/frontend/src/components/Graph",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "preferences.pluginManager",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python 测试.pytest (debug_init.py 内).executor&quot;: &quot;Run&quot;,
+    &quot;Python.QA_integration_new.executor&quot;: &quot;Debug&quot;,
+    &quot;Python.cypher.executor&quot;: &quot;Run&quot;,
+    &quot;Python.debug_init.executor&quot;: &quot;Run&quot;,
+    &quot;Python.demo.executor&quot;: &quot;Run&quot;,
+    &quot;Python.hfacs_trans_xltx_json.executor&quot;: &quot;Run&quot;,
+    &quot;Python.modeling_jointlk.executor&quot;: &quot;Run&quot;,
+    &quot;Python.score.executor&quot;: &quot;Run&quot;,
+    &quot;Python.scratch_1.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_integrationqa.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/NEO4J_related/llm-builder/llm/llm-graph-builder/frontend/src/components/Graph&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   },
-  "keyToStringList": {
-    "com.intellij.ide.scratch.ScratchImplUtil$2/新建临时文件": [
-      "Python"
+  &quot;keyToStringList&quot;: {
+    &quot;com.intellij.ide.scratch.ScratchImplUtil$2/新建临时文件&quot;: [
+      &quot;Python&quot;
     ]
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="D:\NEO4J_related\llm-builder\llm\llm-graph-builder\frontend\src\components\Graph" />
@@ -338,7 +342,15 @@
       <option name="project" value="LOCAL" />
       <updated>1763652555099</updated>
     </task>
-    <option name="localTasksCounter" value="10" />
+    <task id="LOCAL-00010" summary="量化模块更新3">
+      <option name="closed" value="true" />
+      <created>1763667173268</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1763667173268</updated>
+    </task>
+    <option name="localTasksCounter" value="11" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -365,7 +377,8 @@
     <MESSAGE value="增加量化模块" />
     <MESSAGE value="量化模块更新" />
     <MESSAGE value="量化模块更新2" />
-    <option name="LAST_COMMIT_MESSAGE" value="量化模块更新2" />
+    <MESSAGE value="量化模块更新3" />
+    <option name="LAST_COMMIT_MESSAGE" value="量化模块更新3" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

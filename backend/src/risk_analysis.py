@@ -86,16 +86,32 @@ def get_risk_metrics(graph: Neo4jGraph) -> Dict[str, Any]:
         logging.error(f"提取风险指标失败: {e}", exc_info=True)
         return {"status": "error", "message": str(e)}
 
+def _invoke_assessment_llm(llm: BaseLanguageModel, query: str, context_str: str) -> Dict[str, Any]:
+    """复用的推理逻辑，方便正常流程与兜底流程调用同一个 Prompt。"""
+    assessment_prompt = ChatPromptTemplate.from_template(RISK_ASSESSMENT_PROMPT_TEMPLATE)
+    assessment_chain = assessment_prompt | llm
+    response = assessment_chain.invoke({"query": query, "context": context_str})
+
+    content = response.content
+    if "```json" in content:
+        content = content.split("```json")[1].split("```")[0]
+    elif "```" in content:
+        content = content.replace("```", "").strip()
+
+    return json.loads(content)
+
 
 def get_risk_probability_assessment(graph: Neo4jGraph, query: str, model: str) -> Dict[str, Any]:
     """
     (阶段四: 动态概率量化 - RAG)
     1. 从 KG 检索与查询相关的风险因子。
     2. 将因子注入 Prompt，让 LLM 进行推理。
+    3. 如果知识图谱缺乏匹配信息，则直接触发 LLM 兜底推理，保证用户能拿到评估结果。
     """
     try:
-        # 1. 检索 (Retrieval)
         core_query = query
+        # get_llm 返回 (llm 实例, model_name)，这里只需要 llm 实例参与链式调用
+        llm, _ = get_llm(model)
 
         rag_query = """
         // 1. 查找与查询 $query 匹配的作业 / 地点 / 设备 / 任务 / 风险节点
@@ -148,12 +164,7 @@ def get_risk_probability_assessment(graph: Neo4jGraph, query: str, model: str) -
         LIMIT 10  // 限制返回的上下文数量
         """
 
-
         result = graph.query(rag_query, params={"query": core_query})
-
-        if not result:
-            logging.warning(f"RAG 检索：未找到与 '{core_query}' 相关的风险因子。")
-            return {"status": "error", "message": f"未在知识图谱中找到与 '{core_query}' 相关的明确信息。"}
 
         # 2. 上下文构建 (Context Building)
         context_str = ""
@@ -197,28 +208,31 @@ def get_risk_probability_assessment(graph: Neo4jGraph, query: str, model: str) -
         else:
             context_str += "  - 未找到风险因子记录\n"
 
-        logging.info(f"RAG 检索到的上下文:\n{context_str}")
-
         # 3. 推理 (Reasoning)
-        llm = get_llm(model)
-        assessment_prompt = ChatPromptTemplate.from_template(RISK_ASSESSMENT_PROMPT_TEMPLATE)
-        assessment_chain = assessment_prompt | llm
+        if result:
+            logging.info(f"RAG 检索到的上下文:\n{context_str}")
+            assessment_result = _invoke_assessment_llm(llm, query, context_str)
+            return {"status": "success", "assessment": assessment_result, "source": "knowledge_graph"}
 
-        response = assessment_chain.invoke({
-            "query": query,  # 使用用户原始查询
-            "context": context_str
-        })
-
-        content = response.content
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.replace("```", "").strip()
-
-        assessment_result = json.loads(content)
-
-        return {"status": "success", "assessment": assessment_result}
+        # 兜底：当知识图谱没有命中时，仍然通过 LLM 给出合理估算
+        logging.warning(
+            f"RAG 检索：未找到与 '{core_query}' 相关的风险因子，启用大模型兜底推理。"
+        )
+        fallback_context = (
+            f"- 评估目标: {query}\n"
+            "- 关联人员/班组: 未知\n"
+            "- 关联设备: 未知\n"
+            "- 关联环境因素: 未知\n"
+            "- 关联的【风险因子】(基于 HFACS 分类):\n"
+            "  - 知识图谱未检索到相关风险因子，请结合雨天、高空作业等常见场景进行安全推理，并给出可能的风险来源、概率等级与量化分数。\n"
+        )
+        assessment_result = _invoke_assessment_llm(llm, query, fallback_context)
+        return {
+            "status": "success",
+            "assessment": assessment_result,
+            "source": "llm_fallback",
+            "message": f"知识图谱缺少与 '{core_query}' 相关的数据，结果由大模型推理生成。",
+        }
 
     except Exception as e:
         logging.error(f"风险概率评估失败: {e}", exc_info=True)
-        return {"status": "error", "message": str(e)}

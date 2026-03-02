@@ -243,15 +243,19 @@ class graphDBdataAccess:
         return self.execute_query(query,param)
     def export_concept(self):
         query_entities = """
-        MATCH (e) 
-        WHERE NOT e:Chunk AND NOT e:Document 
-        RETURN e.id AS name
+        MATCH (e)
+        WHERE NOT e:Chunk AND NOT e:Document
+        RETURN coalesce(e.name, e.id) AS name, labels(e) AS labels
         """
         query_edges = """
-        MATCH (h)-[r]->(t) 
-        WHERE NOT h:Chunk AND NOT h:Document AND NOT t:Chunk AND NOT t:Document 
-        RETURN h.id AS head, t.id AS tail, type(r) AS rel_type
+        MATCH (h)-[r]->(t)
+        WHERE NOT h:Chunk AND NOT h:Document AND NOT t:Chunk AND NOT t:Document
+        RETURN coalesce(h.name, h.id) AS head,
+               labels(h) AS head_labels,
+               coalesce(t.name, t.id) AS tail,
+               labels(t) AS tail_labels,
+               type(r) AS rel_type
         """
-        query_nodes=self.execute_query(query_entities)
-        query_relations=self.execute_query(query_edges)
+        query_nodes = self.execute_query(query_entities)
+        query_relations = self.execute_query(query_edges)
         return query_nodes, query_relations

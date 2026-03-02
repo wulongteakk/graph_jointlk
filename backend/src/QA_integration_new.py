@@ -26,15 +26,38 @@ from src.shared.constants import *
 from src.risk_analysis import get_risk_probability_assessment, get_risk_metrics
 from langchain.chains import GraphCypherQAChain
 import json
-try:
-    from src.qagnn_scorer import prune_and_score_nodes
-    QAGNN_SCORER_ENABLED=True
-except ImportError as e:
-    logging.warning(f"************************************************************")
-    logging.warning(f"QAGNN scorer module import failed: {e}. ")
-    logging.warning("Dynamic pruning will be DISABLED.")
-    logging.warning(f"************************************************************")
+
+
+def _is_qagnn_scorer_enabled() -> bool:
+    return os.getenv("ENABLE_QAGNN_SCORER", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+if _is_qagnn_scorer_enabled():
+    try:
+        from src import qagnn_scorer
+        prune_and_score_nodes = qagnn_scorer.prune_and_score_nodes
+        QAGNN_SCORER_ENABLED = qagnn_scorer.QAGNN_SCORER_ENABLED
+        if not QAGNN_SCORER_ENABLED:
+            logging.warning("QAGNN scorer is disabled. Dynamic pruning will be DISABLED.")
+    except ImportError as e:
+        logging.warning(f"************************************************************")
+        logging.warning(f"QAGNN scorer module import failed: {e}. ")
+        logging.warning("Dynamic pruning will be DISABLED.")
+        logging.warning(f"************************************************************")
+        QAGNN_SCORER_ENABLED = False
+else:
     QAGNN_SCORER_ENABLED = False
+
+    def prune_and_score_nodes(nodes_list, question, top_k=15):
+        logging.warning("QAGNN scorer is disabled. Returning original nodes.")
+        if not nodes_list:
+            return set(), set(), set()
+        retained_names = set(
+            e.get("properties", {}).get("id", e.get("properties", {}).get("name"))
+            for e in nodes_list
+        )
+        retained_ids = set(e.get("element_id") for e in nodes_list)
+        return retained_names, retained_ids, set()
 
 ## Chat models
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
@@ -270,6 +293,11 @@ def build_risk_probability_response(graph, model, question: str):
         coupling = assessment.get("risk_coupling_analysis")
         score = assessment.get("quantitative_risk_score")
         level = assessment.get("accident_probability_level")
+        if probability_result.get("source") == "llm_fallback":
+            fallback_reason = probability_result.get(
+                "message", "知识图谱缺少相关数据，已由大模型给出估算。"
+            )
+            lines.append(f"提醒：{fallback_reason}")
         if coupling:
             lines.append(f"耦合分析：{coupling}")
         lines.append(f"量化风险分数：{score if score is not None else 'N/A'}，事故概率等级：{level if level else 'N/A'}。")

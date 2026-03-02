@@ -3,6 +3,7 @@
 # 描述: 从 'qagnn' (仓库2) 移植过来的节点评分和剪枝模块。
 #
 
+import os
 import torch
 import torch.nn as nn
 from collections import OrderedDict
@@ -51,23 +52,27 @@ TOKENIZER = None
 LM_MODEL = None
 DEVICE = None
 QAGNN_SCORER_ENABLED = False
+ENABLE_QAGNN_SCORER = os.getenv("ENABLE_QAGNN_SCORER", "false").strip().lower() in {"1", "true", "yes", "on"}
 
-try:
-    log.info('Loading QAGNN LM scorer (roberta-large)...')
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    TOKENIZER = RobertaTokenizer.from_pretrained('roberta-large')
-    LM_MODEL = RobertaForMaskedLMwithLoss.from_pretrained('roberta-large')
-    LM_MODEL.to(DEVICE)
-    LM_MODEL.eval()
-    log.info(f'QAGNN LM scorer loaded successfully onto {DEVICE}.')
-    QAGNN_SCORER_ENABLED = True
-except Exception as e:
-    log.error(f"************************************************************")
-    log.error(f"Error loading QAGNN LM scorer (roberta-large): {e}")
-    log.error("The dynamic pruning module will be DISABLED.")
-    log.error("Please check torch, transformers, and CUDA setup.")
-    log.error(f"************************************************************")
-    QAGNN_SCORER_ENABLED = False
+if ENABLE_QAGNN_SCORER:
+    try:
+        log.info('Loading QAGNN LM scorer (roberta-large)...')
+        DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        TOKENIZER = RobertaTokenizer.from_pretrained('roberta-large')
+        LM_MODEL = RobertaForMaskedLMwithLoss.from_pretrained('roberta-large')
+        LM_MODEL.to(DEVICE)
+        LM_MODEL.eval()
+        log.info(f'QAGNN LM scorer loaded successfully onto {DEVICE}.')
+        QAGNN_SCORER_ENABLED = True
+    except Exception as e:
+        log.error(f"************************************************************")
+        log.error(f"Error loading QAGNN LM scorer (roberta-large): {e}")
+        log.error("The dynamic pruning module will be DISABLED.")
+        log.error("Please check torch, transformers, and CUDA setup.")
+        log.error(f"************************************************************")
+        QAGNN_SCORER_ENABLED = False
+else:
+    log.info("QAGNN scorer disabled (set ENABLE_QAGNN_SCORER=true to enable).")
 
 
 # --- 3. 移植和修改 get_LM_score 函数 ---

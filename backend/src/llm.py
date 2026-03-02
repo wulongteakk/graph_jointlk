@@ -205,7 +205,14 @@ def get_graph_document_list(
     if not use_function:
         node_properties = False
     else:
-        node_properties = ["description"]
+        node_properties = [
+            "description",
+            "layer_code",
+            "category_code",
+            "confidence",
+            "reason",
+            "evidence",
+        ]
     llm_transformer = LLMGraphTransformer(
         llm=llm,
         node_properties=node_properties,

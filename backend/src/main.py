@@ -16,7 +16,7 @@ from src.document_sources.youtube import *
 from src.shared.common_fn import *
 from src.make_relationships import *
 from src.document_sources.web_pages import *
-from src.graph_export import generate_gpickle_export
+# from src.graph_export import generate_gpickle_export,export_jointlk_json_artifacts
 
 import re
 from langchain_community.document_loaders import WikipediaLoader, WebBaseLoader
@@ -349,8 +349,11 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
             logging.info("Starting graph export to gpickle format...")
             query_nodes, query_relations = graphDb_data_Access.export_concept()
             generate_gpickle_export(query_nodes, query_relations)
+            export_jointlk_json_artifacts(query_nodes, query_relations)
 
-            logging.info(f"Successfully exported graph to data/my_kg/my_concept.txt and data/my_kg/my_graph.gpickle")
+            logging.info(
+                "Successfully exported graph artifacts (concept.txt, graph.gpickle, vocab JSONs)."
+            )
 
         except Exception as e:
             logging.error(f"Failed to export gpickle graph: {e}")

@@ -262,5 +262,76 @@
       "DOCUMENTS"
     ],
     "schema": "Construction_safety"
+  },
+  {
+  "labels": [
+    "Layer",
+    "Category",
+    "RiskFactor",
+    "HazardEvent",
+    "Outcome",
+
+    "WorkActivity",
+    "HazardSource",
+    "TriggerCondition",
+    "BarrierControl",
+    "Location",
+    "Equipment",
+    "Environment",
+
+    "FacetScheme",
+    "FacetValue",
+    "CTPRule",
+    "Project",
+    "Document",
+    "EvidenceUnit",
+    "Assertion"
+  ],
+  "relationshipTypes": [
+    "IN_LAYER",
+    "IN_CATEGORY",
+
+    "CONTRIBUTES_TO",
+    "INCREASES_RISK_OF",
+    "LEADS_TO",
+
+    "HAS_HAZARD",
+    "HAS_TRIGGER",
+    "HAS_BARRIER",
+    "OCCURS_DURING",
+    "OCCURS_AT",
+    "USES_EQUIPMENT",
+    "HAS_ENVIRONMENT",
+
+    "TRIGGERS",
+    "PREVENTS",
+    "RESULTS_IN",
+
+    "HAS_ACCIDENT_TYPE",
+
+    "HAS_LOCATION_TYPE",
+    "HAS_FALL_PROTECTION_TYPE",
+    "USES_PPE",
+    "HAS_PPE_USE_ERROR",
+    "HAS_ACTION_TYPE",
+
+    "LOCATED_IN",
+    "APPLIES_TO",
+    "AFFECTS",
+
+    "REQUIRES_FACET",
+    "IN_SCHEME",
+    "HAS_FACET_VALUE",
+
+    "FROM_LAYER",
+    "TO_LAYER",
+
+    "HAS_ASSERTION",
+    "ASSERTS",
+    "SUPPORTED_BY",
+    "FROM_DOCUMENT",
+    "BELONGS_TO"
+  ],
+  "schema": "HFCSA"
   }
 ]

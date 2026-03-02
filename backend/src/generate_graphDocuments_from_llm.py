@@ -1,7 +1,5 @@
+import json
 import logging
-import jieba
-import re
-from difflib import SequenceMatcher
 from typing import List, Dict, Any, Optional
 from langchain_community.graphs import Neo4jGraph
 
@@ -13,10 +11,7 @@ from src.openAI_llm import get_graph_from_OpenAI # 替换
 from src.gemini_llm import get_graph_from_Gemini # 替换
 from src.shared.constants import *
 # from src.llm import get_graph_from_llm as old_get_graph_from_llm
-from src.graph_transformers.llm import LLMGraphTransformer
-from src.llm import get_graph_from_llm
-from src.HFACS_Factors import HFACS_RISK_FACTORS,HFACS_SIMILARITY_THRESHOLD
-
+from src.llm import get_graph_from_llm, get_llm
 
 
 logging.basicConfig(format="%(asctime)s - %(message)s", level="INFO")
@@ -25,107 +20,83 @@ logging.basicConfig(format="%(asctime)s - %(message)s", level="INFO")
 
 
 
-def _normalize_text(text: str) -> str:
-    cleaned = re.sub(r"\s+", "", text.lower())
-    words = jieba.lcut(text)
-    return words
+def _strip_json_fence(content: str) -> str:
+    if "```json" in content:
+        return content.split("```json")[1].split("```")[0]
+    if "```" in content:
+        return content.replace("```", "").strip()
+    return content
 
 
-def _calc_similarity(a: str, b: str) -> float:
-    return SequenceMatcher(None, _normalize_text(a), _normalize_text(b)).ratio()
-
-
-def match_hfacs_risk_factor(entity_name: str) -> Optional[Dict[str, Any]]:
-    """
-    将实体名称与 HFACS 风险因子关键词进行模糊匹配，返回最佳命中项。
-    """
-    best_match: Optional[Dict[str, Any]] = None
-    best_score = 0.0
-    matched_keyword = ""
-
-    for factor in HFACS_RISK_FACTORS:
-        for keyword in factor.get("keywords", []):
-            score_all=[]
-            for i in keyword:
-                score_single = _calc_similarity(i, entity_name)
-                score_all.append(score_single)
-            score=max(score_all)
-            if score > best_score and score >= HFACS_SIMILARITY_THRESHOLD:
-                best_score = score
-                matched_keyword = keyword
-                best_match = {
-                    "risk_name": factor.get("risk_name"),
-                    "risk_domain": factor.get("domain"),
-                    "hfacs_level_1": factor.get("hfacs_level_1"),
-                    "hfacs_level_2": factor.get("hfacs_level_2"),
-                    "severity_level": factor.get("severity_level"),
-                    "severity_description": factor.get("severity_description"),
-                    "hfacs_match_keyword": keyword,
-                    "hfacs_match_score": round(score, 3),
-                }
-
-    if best_match:
-        logging.info(
-            f"HFACS 匹配: 实体[{entity_name}] -> {best_match['risk_name']} (keyword: {matched_keyword}, score: {best_score:.3f})"
-        )
-    return best_match
-
-def classify_risk_factor_with_llm(entity_name: str, model: str) -> Optional[Dict[str, Any]]:
-    """
-    当基于词表的 HFACS 模糊匹配失败时，调用大模型判断该实体是否属于安全风险因子/隐患，
-    并补全 HFACS 相关属性。
-    """
+def classify_risk_factor_hfcsa_with_llm(
+    risk_factor: str,
+    context: str,
+    model: str,
+) -> Optional[Dict[str, Any]]:
     try:
         llm, _ = get_llm(model)
-        prompt = ChatPromptTemplate.from_template(HFACS_CLASSIFICATION_PROMPT_TEMPLATE)
+        prompt = ChatPromptTemplate.from_template(
+            HFCSA_CONTROLLED_CLASSIFICATION_PROMPT_TEMPLATE
+            + "\n\n待分类 RiskFactor: \"{risk_factor}\"\n\n原文片段:\n{context}\n"
+        )
         chain = prompt | llm
-
-        response = chain.invoke({"entity_name": entity_name})
-        content = response.content
-
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.replace("```", "").strip()
-
+        response = chain.invoke({"risk_factor": risk_factor, "context": context})
+        content = _strip_json_fence(response.content)
         data = json.loads(content)
     except Exception as e:
-        logging.warning(f"LLM 判定 HFACS 风险因子失败，实体: {entity_name}, 错误: {e}")
+        logging.warning(f"LLM 受控分类失败，RiskFactor: {risk_factor}, 错误: {e}")
         return None
 
-    if not data or not data.get("is_risk_factor"):
+    if isinstance(data, dict):
+        data = [data]
+    if not data:
         return None
 
-    severity_level = data.get("severity_level")
-    try:
-        if severity_level is not None:
-            severity_level = int(severity_level)
-    except ValueError:
-        logging.warning(f"无法解析严重程度为整数，实体: {entity_name}, 输入值: {severity_level}")
-
-    classification = {
-        "risk_name": data.get("risk_name") or entity_name,
-        "risk_domain": data.get("risk_domain"),
-        "hfacs_level_1": data.get("hfacs_level_1"),
-        "hfacs_level_2": data.get("hfacs_level_2"),
-        "severity_level": severity_level,
-        "severity_description": data.get("reason"),
-        "hfacs_match_keyword": "llm_classified",
-        "hfacs_match_score": data.get("confidence", 0),
+    result = data[0]
+    return {
+        "layer_code": result.get("layer_code"),
+        "category_code": result.get("category_code"),
+        "confidence": result.get("confidence"),
+        "reason": result.get("reason"),
+        "evidence": result.get("evidence"),
     }
 
-    logging.info(
-        f"LLM 判定实体[{entity_name}] 为 HFACS 风险因子，一级 {classification['hfacs_level_1']}，二级 {classification['hfacs_level_2']}。"
-    )
 
-    return classification
+def _is_risk_factor_node(node: Any) -> bool:
+    node_type = (node.type or "").strip()
+    node_type_lower = node_type.lower()
+    risk_types = {
+        "riskfactor",
+        "风险因子",
+        "风险",
+        "隐患",
+        "不安全行为",
+        "管理缺陷",
+        "前提条件",
+        "人因",
+        "cause",
+        "hazardsource",
+        "hazard_source",
+        "hazard",
+        "hazardouscondition",
+        "unsafeact",
+        "unsafecondition",
+    }
+    if node_type_lower in risk_types or node_type in risk_types:
+        return True
+    return False
+
+
+def _get_node_display_name(node: Any) -> str:
+    if node.properties:
+        return node.properties.get("name") or node.properties.get("id") or node.id
+    return node.id
 
 
 
 
 def generate_graphDocuments(model: str, graph: Neo4jGraph, chunkId_chunkDoc_list: List, allowedNodes=None,
                             allowedRelationship=None) -> List[GraphDocument]:
-
 
     if not allowedNodes:
         allowedNodes = CONSTRUCTION_NODE_LABELS
@@ -156,36 +127,36 @@ def generate_graphDocuments(model: str, graph: Neo4jGraph, chunkId_chunkDoc_list
         graph_documents = get_graph_from_llm(model, chunkId_chunkDoc_list, allowedNodes, allowedRelationship)
 
 
-    extraction_prompt = ChatPromptTemplate.from_template(CONSTRUCTION_EXPERT_PROMPT_TEMPLATE)
-
     logging.info(f"提取出来的graph_documents: {graph_documents}")
 
-    logging.info("开始进行阶段三：隐患严重性打分与风险因子映射...")
-    total_hazards_scored = 0
-    total_hfacs_enriched = 0
+    logging.info("开始进行阶段二：风险因子受控分类...")
+    total_hfcsa_enriched = 0
 
     for graph_doc in graph_documents:
         for node in graph_doc.nodes:
-            node_type = node.type.lower()
-            node_name = (
-                node.properties.get("id") if node.properties else None
-            ) or node.id
+            if _is_risk_factor_node(node):
+                existing_props = node.properties or {}
+                if existing_props.get("layer_code") and existing_props.get("category_code"):
+                    continue
+                context = graph_doc.source.page_content if graph_doc.source else ""
+                classification = classify_risk_factor_hfcsa_with_llm(
+                    _get_node_display_name(node),
+                    context,
+                    model,
+                )
+                if classification:
+                    print(node)
+                    existing_props.update(
+                        {key: value for key, value in classification.items() if value is not None}
+                    )
+                    node.properties = existing_props
+                    total_hfcsa_enriched += 1
+                    print(node)
 
-
-            # HFACS 风险因子匹配（隐患/风险/作业/任务等场景）
-
-            match = match_hfacs_risk_factor(node_name)
-            if not match:
-                match = classify_risk_factor_with_llm(node_name, model)
-            if match:
-                if node.properties:
-                    node.properties.update(match)
-                else:
-                    node.properties = match
-
-    logging.info(
-        f"隐患打分完成。总共对 {total_hazards_scored} 个隐患节点进行了打分，HFACS 风险因子属性覆盖 {total_hfacs_enriched} 个节点。"
-    )
+            logging.info(
+                "风险因子受控分类完成。HFCSA 受控分类覆盖 %s 个节点。",
+                total_hfcsa_enriched,
+            )
 
 
 
