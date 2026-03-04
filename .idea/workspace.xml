@@ -4,7 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="量化模块更新3">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="受控分类prompt">
+      <change afterPath="$PROJECT_DIR$/backend/src/cto_pipeline.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/evidence_store/_init.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/evidence_store/sqlite_store.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/evidence_store/text_span.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
@@ -20,17 +24,8 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/data_utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/QA_integration_new.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/QA_integration_new.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graph_export.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_export.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graph_transformers/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_transformers/llm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/llm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/qagnn_scorer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/risk_analysis.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/risk_analysis.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/make_relationships.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/make_relationships.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/shared/constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/shared/constants.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/assets/schemas.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/assets/schemas.json" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -350,7 +345,15 @@
       <option name="project" value="LOCAL" />
       <updated>1763667173268</updated>
     </task>
-    <option name="localTasksCounter" value="11" />
+    <task id="LOCAL-00011" summary="受控分类prompt">
+      <option name="closed" value="true" />
+      <created>1772417457367</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1772417457367</updated>
+    </task>
+    <option name="localTasksCounter" value="12" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -378,7 +381,8 @@
     <MESSAGE value="量化模块更新" />
     <MESSAGE value="量化模块更新2" />
     <MESSAGE value="量化模块更新3" />
-    <option name="LAST_COMMIT_MESSAGE" value="量化模块更新3" />
+    <MESSAGE value="受控分类prompt" />
+    <option name="LAST_COMMIT_MESSAGE" value="受控分类prompt" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
