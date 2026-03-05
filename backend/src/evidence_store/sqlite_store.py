@@ -40,6 +40,39 @@ CREATE TABLE IF NOT EXISTS evidence_units (
 
 CREATE INDEX IF NOT EXISTS idx_evidence_units_parent ON evidence_units(parent_evidence_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_units_kind ON evidence_units(unit_kind);
+
+-- 因果链主表：按报告/chunk 持久化生成结果，便于后续分析与复用
+CREATE TABLE IF NOT EXISTS causal_chains (
+  chain_id TEXT PRIMARY KEY,
+  file_name TEXT,
+  parent_evidence_id TEXT,
+  chain_text TEXT,
+  chain_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_causal_chains_file ON causal_chains(file_name);
+CREATE INDEX IF NOT EXISTS idx_causal_chains_parent ON causal_chains(parent_evidence_id);
+
+-- 因果链边表：保留每一条边及顺序，并挂接证据定位
+CREATE TABLE IF NOT EXISTS causal_chain_edges (
+  edge_id TEXT PRIMARY KEY,
+  chain_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  source_node_id TEXT NOT NULL,
+  source_layer TEXT,
+  target_node_id TEXT NOT NULL,
+  target_layer TEXT,
+  evidence_unit_id TEXT,
+  evidence_start INTEGER,
+  evidence_end INTEGER,
+  meta_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_causal_chain_edges_chain ON causal_chain_edges(chain_id, seq);
 """
 
 
@@ -93,6 +126,94 @@ class EvidenceStore:
             conn = self._connect()
             try:
                 conn.executescript(_SCHEMA_SQL)
+                conn.commit()
+            finally:
+                conn.close()
+
+    # ---------------------------------------------------------------------
+    # Causal Chain API
+    # ---------------------------------------------------------------------
+    def upsert_causal_chain(
+        self,
+        chain_id: str,
+        file_name: Optional[str],
+        parent_evidence_id: Optional[str],
+        chain_text: str,
+        chain_json: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        now = datetime.utcnow().isoformat()
+        chain_json_str = json.dumps(chain_json or {}, ensure_ascii=False)
+
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO causal_chains(chain_id, file_name, parent_evidence_id, chain_text, chain_json, created_at, updated_at)
+                    VALUES(?,?,?,?,?,?,?)
+                    ON CONFLICT(chain_id) DO UPDATE SET
+                      file_name=excluded.file_name,
+                      parent_evidence_id=excluded.parent_evidence_id,
+                      chain_text=excluded.chain_text,
+                      chain_json=excluded.chain_json,
+                      updated_at=excluded.updated_at
+                    """,
+                    (chain_id, file_name, parent_evidence_id, chain_text, chain_json_str, now, now),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+    def upsert_causal_chain_edges(self, chain_id: str, edges: Sequence[Dict[str, Any]]) -> None:
+        if not edges:
+            return
+        now = datetime.utcnow().isoformat()
+
+        with self._lock:
+            conn = self._connect()
+            try:
+                for edge in edges:
+                    edge_id = edge.get("edge_id")
+                    if not edge_id:
+                        continue
+                    meta_json = json.dumps(edge.get("meta") or {}, ensure_ascii=False)
+                    conn.execute(
+                        """
+                        INSERT INTO causal_chain_edges(
+                          edge_id, chain_id, seq, source_node_id, source_layer,
+                          target_node_id, target_layer, evidence_unit_id,
+                          evidence_start, evidence_end, meta_json, created_at, updated_at
+                        )
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(edge_id) DO UPDATE SET
+                          chain_id=excluded.chain_id,
+                          seq=excluded.seq,
+                          source_node_id=excluded.source_node_id,
+                          source_layer=excluded.source_layer,
+                          target_node_id=excluded.target_node_id,
+                          target_layer=excluded.target_layer,
+                          evidence_unit_id=excluded.evidence_unit_id,
+                          evidence_start=excluded.evidence_start,
+                          evidence_end=excluded.evidence_end,
+                          meta_json=excluded.meta_json,
+                          updated_at=excluded.updated_at
+                        """,
+                        (
+                            edge_id,
+                            chain_id,
+                            int(edge.get("seq") or 0),
+                            edge.get("source_node_id"),
+                            edge.get("source_layer"),
+                            edge.get("target_node_id"),
+                            edge.get("target_layer"),
+                            edge.get("evidence_unit_id"),
+                            edge.get("evidence_start"),
+                            edge.get("evidence_end"),
+                            meta_json,
+                            now,
+                            now,
+                        ),
+                    )
                 conn.commit()
             finally:
                 conn.close()

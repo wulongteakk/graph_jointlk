@@ -147,15 +147,19 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
             sent = sents[sent_idx] if sents else None
             sent_unit_id = f"{chunk_id}::sent::{sent_idx}" if sents else None
 
-            # primary: 优先段落，其次句子
+            # primary: 优先段落，其次句子；都不可用时回落到 chunk 级别，避免 Neo4j MERGE 空 id
             if para and para.text and para.text.strip():
                 primary_unit_id = para_unit_id
                 primary_kind = "paragraph"
                 primary_span = para
-            else:
+            elif sent and sent.text and sent.text.strip():
                 primary_unit_id = sent_unit_id
                 primary_kind = "sentence"
                 primary_span = sent
+            else:
+                primary_unit_id = f"{chunk_id}::chunk"
+                primary_kind = "chunk"
+                primary_span = None
 
             # secondary: 如果 primary 是段落，则补一个句子
             secondary_unit_id = None
@@ -213,8 +217,8 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
                     "evidence_end": end,
                     "primary_unit_id": primary_unit_id,
                     "primary_unit_kind": primary_kind,
-                    "primary_unit_start": (primary_span.start if primary_span else None),
-                    "primary_unit_end": (primary_span.end if primary_span else None),
+                    "primary_unit_start": (primary_span.start if primary_span else start),
+                    "primary_unit_end": (primary_span.end if primary_span else end),
                     "paragraph_unit_id": para_unit_id,
                     "paragraph_start": (para.start if para else None),
                     "paragraph_end": (para.end if para else None),

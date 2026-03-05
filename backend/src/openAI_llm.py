@@ -7,13 +7,15 @@ from concurrent.futures import ThreadPoolExecutor
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_experimental.graph_transformers import LLMGraphTransformer
-from src.llm import get_graph_document_list, get_combined_chunks, get_llm
+
+from src.chunk_utils import get_combined_chunks
 
 load_dotenv()
 logging.basicConfig(format='%(asctime)s - %(message)s', level='INFO')
 
 
 def get_graph_from_OpenAI(model_version, graph, chunkId_chunkDoc_list, allowedNodes, allowedRelationship):
+    from src.llm import get_graph_document_list, get_llm
     futures = []
     graph_document_list = []
 

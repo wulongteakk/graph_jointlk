@@ -17,8 +17,8 @@ from langchain_community.chat_models.tongyi import ChatTongyi
 import boto3
 import google.auth
 
-from src.graph_transformers.llm import LLMGraphTransformer
 from src.shared.constants import MODEL_VERSIONS
+from src.chunk_utils import get_combined_chunks
 
 
 def get_llm(model_version: str):
@@ -153,53 +153,18 @@ def get_llm(model_version: str):
     return llm, model_name
 
 
-def get_combined_chunks(chunkId_chunkDoc_list):
-    chunks_to_combine = int(os.environ.get("NUMBER_OF_CHUNKS_TO_COMBINE"))
-    logging.info(f"Combining {chunks_to_combine} chunks before sending request to LLM")
-    combined_chunk_document_list = []
-    combined_chunks_page_content = [
-        "".join(
-            document["chunk_doc"].page_content
-            for document in chunkId_chunkDoc_list[i: i + chunks_to_combine]
-        )
-        for i in range(0, len(chunkId_chunkDoc_list), chunks_to_combine)
-    ]
-    combined_chunks_ids = [
-        [
-            document["chunk_id"]
-            for document in chunkId_chunkDoc_list[i: i + chunks_to_combine]
-        ]
-        for i in range(0, len(chunkId_chunkDoc_list), chunks_to_combine)
-    ]
-
-    combined_file_names = [
-        next(
-            (
-                document["chunk_doc"].metadata.get("fileName")
-                for document in chunkId_chunkDoc_list[i: i + chunks_to_combine]
-                if document.get("chunk_doc") and document["chunk_doc"].metadata
-            ),
-            None,
-        )
-        for i in range(0, len(chunkId_chunkDoc_list), chunks_to_combine)
-    ]
-
-    for i in range(len(combined_chunks_page_content)):
-        combined_chunk_document_list.append(
-            Document(
-                page_content=combined_chunks_page_content[i],
-                metadata={
-                    "combined_chunk_ids": combined_chunks_ids[i],
-                    "fileName": combined_file_names[i],
-                },
-            )
-        )
-    return combined_chunk_document_list
-
 
 def get_graph_document_list(
         llm, combined_chunk_document_list, allowedNodes, allowedRelationship, use_function=True
 ):
+    # 函数内再次导入，避免某些分支合并遗漏顶层 import inspect 导致 NameError
+    import inspect as _inspect
+
+    try:
+        from src.graph_transformers.llm import LLMGraphTransformer
+    except Exception as e:
+        logging.warning(f"Fallback to langchain_experimental LLMGraphTransformer due to import error: {e}")
+        from langchain_experimental.graph_transformers import LLMGraphTransformer
     futures = []
     graph_document_list = []
     if not use_function:
@@ -213,13 +178,18 @@ def get_graph_document_list(
             "reason",
             "evidence",
         ]
-    llm_transformer = LLMGraphTransformer(
-        llm=llm,
-        node_properties=node_properties,
-        allowed_nodes=allowedNodes,
-        allowed_relationships=allowedRelationship,
-        use_function_call=use_function
-    )
+    init_params = set(_inspect.signature(LLMGraphTransformer.__init__).parameters.keys())
+    init_kwargs = {
+        "llm": llm,
+        "allowed_nodes": allowedNodes,
+        "allowed_relationships": allowedRelationship,
+    }
+    if "node_properties" in init_params:
+        init_kwargs["node_properties"] = node_properties
+    if "use_function_call" in init_params:
+        init_kwargs["use_function_call"] = use_function
+
+    llm_transformer = LLMGraphTransformer(**init_kwargs)
     with ThreadPoolExecutor(max_workers=10) as executor:
         for chunk in combined_chunk_document_list:
             chunk_doc = Document(

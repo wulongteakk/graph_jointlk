@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import List, Dict, Any, Optional
+import re
+from typing import List, Dict, Any, Optional, Tuple
 from langchain_community.graphs import Neo4jGraph
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -28,6 +29,27 @@ def _strip_json_fence(content: str) -> str:
     return content
 
 
+def _parse_classification_payload(raw_content: str) -> Optional[Any]:
+    """兼容 LLM 返回的 ```json / 前后夹带解释文本 / 单对象或对象数组。"""
+    content = _strip_json_fence(raw_content).strip()
+    if not content:
+        return None
+
+    try:
+        return json.loads(content)
+    except Exception:
+        pass
+
+    match = re.search(r"(\{.*\}|\[.*\])", content, flags=re.S)
+    if not match:
+        return None
+
+    try:
+        return json.loads(match.group(1))
+    except Exception:
+        return None
+
+
 def classify_risk_factor_hfcsa_with_llm(
     risk_factor: str,
     context: str,
@@ -41,8 +63,9 @@ def classify_risk_factor_hfcsa_with_llm(
         )
         chain = prompt | llm
         response = chain.invoke({"risk_factor": risk_factor, "context": context})
-        content = _strip_json_fence(response.content)
-        data = json.loads(content)
+        data = _parse_classification_payload(response.content)
+        if data is None:
+            raise ValueError(f"无法从返回中解析 JSON: {response.content[:200]}")
     except Exception as e:
         logging.warning(f"LLM 受控分类失败，RiskFactor: {risk_factor}, 错误: {e}")
         return None
@@ -63,28 +86,25 @@ def classify_risk_factor_hfcsa_with_llm(
 
 
 def _is_risk_factor_node(node: Any) -> bool:
+    """扩大候选匹配范围，避免受控分类覆盖为 0。"""
     node_type = (node.type or "").strip()
     node_type_lower = node_type.lower()
     risk_types = {
-        "riskfactor",
-        "风险因子",
-        "风险",
-        "隐患",
-        "不安全行为",
-        "管理缺陷",
-        "前提条件",
-        "人因",
-        "cause",
-        "hazardsource",
-        "hazard_source",
-        "hazard",
-        "hazardouscondition",
-        "unsafeact",
-        "unsafecondition",
+        "riskfactor", "风险因子", "风险", "隐患", "不安全行为", "管理缺陷", "前提条件", "人因", "cause",
+        "hazardsource", "hazard_source", "hazard", "hazardouscondition", "unsafeact", "unsafecondition",
+        # Stage1 升级 schema 的常见类型
+        "barrier", "resourcecondition", "humanstate", "managementaction", "accidentevent", "loss",
+        "unsafeact", "standardclause",
     }
     if node_type_lower in risk_types or node_type in risk_types:
         return True
-    return False
+
+    text = f"{_get_node_display_name(node)} {(node.properties or {}).get('description', '')}".lower()
+    risk_keywords = [
+        "风险", "隐患", "违规", "违章", "未", "缺失", "失效", "故障", "坠落", "打击", "坍塌", "触电", "起重",
+        "unsafe", "hazard", "incident", "accident", "injury", "death",
+    ]
+    return any(kw in text for kw in risk_keywords)
 
 
 def _get_node_display_name(node: Any) -> str:
@@ -93,6 +113,93 @@ def _get_node_display_name(node: Any) -> str:
     return node.id
 
 
+
+
+LAYER_FALLBACK_BY_TYPE = {
+    "managementaction": ("S", "S2"),
+    "standardclause": ("O", "O1"),
+    "resourcecondition": ("C", "C2"),
+    "barrier": ("C", "C3"),
+    "humanstate": ("C", "C6"),
+    "hazardsource": ("C", "C2"),
+    "unsafeact": ("A", "A2"),
+    "accidentevent": ("E", None),
+    "loss": ("L", None),
+}
+
+
+def _fallback_classification(node: Any) -> Optional[Dict[str, Any]]:
+    node_type = (node.type or "").strip().lower()
+    if node_type in LAYER_FALLBACK_BY_TYPE:
+        layer_code, category_code = LAYER_FALLBACK_BY_TYPE[node_type]
+        return {
+            "layer_code": layer_code,
+            "category_code": category_code,
+            "confidence": 0.45,
+            "reason": f"fallback_by_node_type:{node.type}",
+            "evidence": _get_node_display_name(node),
+        }
+
+    name = _get_node_display_name(node)
+    lower = (name or "").lower()
+    if any(k in lower for k in ["坠落", "打击", "坍塌", "触电", "起重", "事故", "事件"]):
+        return {"layer_code": "E", "category_code": None, "confidence": 0.4, "reason": "fallback_by_event_keyword", "evidence": name}
+    if any(k in lower for k in ["死亡", "重伤", "轻伤", "损失", "伤亡"]):
+        return {"layer_code": "L", "category_code": None, "confidence": 0.4, "reason": "fallback_by_loss_keyword", "evidence": name}
+    if any(k in lower for k in ["未", "违章", "违规", "冒险", "错误操作"]):
+        return {"layer_code": "A", "category_code": "A2", "confidence": 0.4, "reason": "fallback_by_action_keyword", "evidence": name}
+    return None
+
+
+def _preview_causal_chain(graph_doc: GraphDocument) -> str:
+    """在控制台展示每个 chunk 的简易因果链预览。"""
+    node_map = {}
+    for n in graph_doc.nodes:
+        props = n.properties or {}
+        node_map[n.id] = {
+            "name": props.get("name") or n.id,
+            "layer": props.get("layer_code"),
+            "category": props.get("category_code"),
+        }
+
+    allowed = set(CTP_ALLOWED_TRANSITIONS)
+    chain_edges: List[Tuple[str, str]] = []
+
+    for rel in graph_doc.relationships:
+        s = getattr(rel.source, 'id', None)
+        t = getattr(rel.target, 'id', None)
+        if not s or not t or s not in node_map or t not in node_map:
+            continue
+        sl = node_map[s]["layer"]
+        tl = node_map[t]["layer"]
+        if sl and tl and (sl, tl) in allowed:
+            chain_edges.append((s, t))
+
+    if not chain_edges:
+        per_layer = {k: [] for k in ["O", "S", "C", "A", "E", "L"]}
+        for nid, meta in node_map.items():
+            layer = meta.get("layer")
+            if layer in per_layer:
+                per_layer[layer].append(nid)
+
+        prev = None
+        for layer in ["O", "S", "C", "A", "E", "L"]:
+            if not per_layer[layer]:
+                continue
+            cur = per_layer[layer][0]
+            if prev and (node_map[prev]["layer"], layer) in allowed:
+                chain_edges.append((prev, cur))
+            prev = cur
+
+    if not chain_edges:
+        return "[CTP预览] 当前 chunk 无法生成有效因果链（缺少可匹配层级节点）。"
+
+    segments = []
+    for s, t in chain_edges:
+        sm = node_map[s]
+        tm = node_map[t]
+        segments.append(f"{sm['layer']}:{sm['name']} -> {tm['layer']}:{tm['name']}")
+    return "[CTP预览] " + " | ".join(segments)
 
 
 def generate_graphDocuments(model: str, graph: Neo4jGraph, chunkId_chunkDoc_list: List, allowedNodes=None,
@@ -134,31 +241,35 @@ def generate_graphDocuments(model: str, graph: Neo4jGraph, chunkId_chunkDoc_list
 
     for graph_doc in graph_documents:
         for node in graph_doc.nodes:
-            if _is_risk_factor_node(node):
-                existing_props = node.properties or {}
-                if existing_props.get("layer_code") and existing_props.get("category_code"):
-                    continue
-                context = graph_doc.source.page_content if graph_doc.source else ""
-                classification = classify_risk_factor_hfcsa_with_llm(
-                    _get_node_display_name(node),
-                    context,
-                    model,
-                )
-                if classification:
-                    print(node)
-                    existing_props.update(
-                        {key: value for key, value in classification.items() if value is not None}
-                    )
-                    node.properties = existing_props
-                    total_hfcsa_enriched += 1
-                    print(node)
+            if not _is_risk_factor_node(node):
+                continue
 
-            logging.info(
-                "风险因子受控分类完成。HFCSA 受控分类覆盖 %s 个节点。",
-                total_hfcsa_enriched,
+            existing_props = node.properties or {}
+            if existing_props.get("layer_code") and existing_props.get("category_code"):
+                continue
+
+            context = graph_doc.source.page_content if graph_doc.source else ""
+            classification = classify_risk_factor_hfcsa_with_llm(
+                _get_node_display_name(node),
+                context,
+                model,
             )
+            if not classification:
+                classification = _fallback_classification(node)
 
+            if classification:
+                existing_props.update(
+                    {key: value for key, value in classification.items() if value is not None}
+                )
+                node.properties = existing_props
+                total_hfcsa_enriched += 1
 
-
+        logging.info(
+            "风险因子受控分类完成。当前累计覆盖 %s 个节点。",
+            total_hfcsa_enriched,
+        )
+        preview = _preview_causal_chain(graph_doc)
+        logging.info(preview)
+        print(preview)
     logging.info(f"风险因子匹配后得到的graph_documents: {graph_documents}")
     return graph_documents
