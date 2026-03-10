@@ -10,6 +10,7 @@ from neo4j.graph import Node, Relationship
 
 from src.llm_api_request import ChatRequest
 from src.main import *
+from src.kg_context import build_kg_context
 # from src.QA_integration import *
 from src.risk_analysis import get_risk_metrics, get_risk_probability_assessment
 from src.QA_integration_new import *
@@ -167,6 +168,8 @@ async def extract_knowledge_graph_from_file(
         allowedNodes=Form(None),
         allowedRelationship=Form(None),
         language=Form(None),
+        kg_scope=Form(None),
+        kg_id=Form(None),
         access_token=Form(None)
 ):
     """
@@ -191,30 +194,30 @@ async def extract_knowledge_graph_from_file(
             logging.info(f'File path:{merged_file_path}')
             result = await asyncio.to_thread(
                 extract_graph_from_file_local_file, graph, model, merged_file_path, file_name, allowedNodes,
-                allowedRelationship, uri)
+                allowedRelationship, uri, kg_scope=kg_scope, kg_id=kg_id)
 
         elif source_type == 's3 bucket' and source_url:
             result = await asyncio.to_thread(
                 extract_graph_from_file_s3, graph, model, source_url, aws_access_key_id, aws_secret_access_key,
-                allowedNodes, allowedRelationship)
+                allowedNodes, allowedRelationship, kg_scope=kg_scope, kg_id=kg_id)
 
         elif source_type == 'web-url':
             result = await asyncio.to_thread(
-                extract_graph_from_web_page, graph, model, source_url, allowedNodes, allowedRelationship)
+                extract_graph_from_web_page, graph, model, source_url, allowedNodes, allowedRelationship, kg_scope=kg_scope, kg_id=kg_id)
 
         elif source_type == 'youtube' and source_url:
             result = await asyncio.to_thread(
-                extract_graph_from_file_youtube, graph, model, source_url, allowedNodes, allowedRelationship)
+                extract_graph_from_file_youtube, graph, model, source_url, allowedNodes, allowedRelationship, kg_scope=kg_scope, kg_id=kg_id)
 
         elif source_type == 'Wikipedia' and wiki_query:
             result = await asyncio.to_thread(
                 extract_graph_from_file_Wikipedia, graph, model, wiki_query, max_sources, language, allowedNodes,
-                allowedRelationship)
+                allowedRelationship, kg_scope=kg_scope, kg_id=kg_id)
 
         elif source_type == 'gcs bucket' and gcs_bucket_name:
             result = await asyncio.to_thread(
                 extract_graph_from_file_gcs, graph, model, gcs_project_id, gcs_bucket_name, gcs_bucket_folder,
-                gcs_blob_filename, access_token, allowedNodes, allowedRelationship)
+                gcs_blob_filename, access_token, allowedNodes, allowedRelationship, kg_scope=kg_scope, kg_id=kg_id)
         else:
             return create_api_response('Failed', message='source_type is other than accepted source')
         if result is not None:
@@ -229,7 +232,11 @@ async def extract_knowledge_graph_from_file(
     except Exception as e:
         message = f"Failed To Process File:{file_name} or LLM Unable To Parse Content "
         error_message = str(e)
-        graphDb_data_Access.update_exception_db(file_name, error_message)
+        try:
+            ctx = build_kg_context(kg_scope, kg_id, file_name)
+            graphDb_data_Access.update_exception_db_scoped(ctx.doc_id, error_message)
+        except Exception:
+            graphDb_data_Access.update_exception_db(file_name, error_message)
         gcs_file_cache = os.environ.get('GCS_FILE_CACHE')
         if source_type == 'local file':
             if gcs_file_cache == 'True':
@@ -492,11 +499,11 @@ async def connect(uri=Form(None), userName=Form(None), password=Form(None), data
 @app.post("/upload")
 async def upload_large_file_into_chunks(file: UploadFile = File(...), chunkNumber=Form(None), totalChunks=Form(None),
                                         originalname=Form(None), model=Form(None), uri=Form(None), userName=Form(None),
-                                        password=Form(None), database=Form(None)):
+                                        password=Form(None), database=Form(None), kg_scope=Form(None), kg_id=Form(None)):
     try:
         graph = create_graph_database_connection(uri, userName, password, database)
         result = await asyncio.to_thread(upload_file, graph, model, file, chunkNumber, totalChunks, originalname, uri,
-                                         CHUNK_DIR, MERGED_DIR)
+                                         CHUNK_DIR, MERGED_DIR, kg_scope=kg_scope, kg_id=kg_id)
         josn_obj = {'api_name': 'upload', 'db_url': uri, 'logging_time': formatted_time(datetime.now(timezone.utc))}
         logger.log_struct(josn_obj)
         if int(chunkNumber) == int(totalChunks):

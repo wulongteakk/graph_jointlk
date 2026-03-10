@@ -12,7 +12,7 @@ from src.evidence_store.text_span import (
 )
 
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 import os
 import hashlib
 
@@ -48,6 +48,42 @@ def _pick_evidence_snippet(node) -> str:
     return str(getattr(node, "id", "")).strip()[:120]
 
 
+def _parse_scope_from_doc_id(doc_id: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """doc_id expected: '<kg_scope>|<kg_id>|<file_name_clean>'"""
+    if not doc_id or "|" not in doc_id:
+        return None, None
+    parts = doc_id.split("|", 2)
+    if len(parts) < 2:
+        return None, None
+    return parts[0], parts[1]
+
+
+def _infer_doc_fields(chunk_id: str, md: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Infer doc_id/kg_scope/kg_id from metadata, with chunk_id fallback.
+
+    - Preferred: metadata['doc_id'], metadata['kg_scope'], metadata['kg_id']
+    - Fallback: if chunk_id == '<doc_id>|<hash>', then doc_id = chunk_id.rsplit('|',1)[0]
+    - Fallback parse: kg_scope, kg_id from doc_id
+    """
+
+    doc_id = md.get("doc_id") or md.get("docId")
+    kg_scope = md.get("kg_scope")
+    kg_id = md.get("kg_id")
+
+    # chunk_id fallback
+    if not doc_id and isinstance(chunk_id, str) and "|" in chunk_id:
+        # chunk_id = '<doc_id>|<sha1>'
+        doc_id = chunk_id.rsplit("|", 1)[0]
+
+    # parse from doc_id
+    if (not kg_scope or not kg_id) and doc_id:
+        s, kid = _parse_scope_from_doc_id(doc_id)
+        kg_scope = kg_scope or s
+        kg_id = kg_id or kid
+
+    return {"doc_id": doc_id, "kg_scope": kg_scope, "kg_id": kg_id}
+
+
 def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_documents_chunk_chunk_Id: list):
     """Create HAS_ENTITY relationship between chunks and entities.
 
@@ -63,6 +99,8 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
         * (Entity)-[:SUPPORTED_BY {primary:false}]->(sentence EvidenceUnit)
 
     目标：让 Stage1 抽取出来的实体具备“可追溯到段落级”的证据定位。
+
+    补齐：EvidenceUnit / HAS_ENTITY / SUPPORTED_BY 写入 doc_id/kg_scope/kg_id 属性（非 MERGE key）。
     """
 
     logging.info("Create HAS_ENTITY relationship between chunks and entities (paragraph-first evidence units)")
@@ -122,6 +160,11 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
 
         md = graph_doc.source.metadata if (graph_doc.source and graph_doc.source.metadata) else {}
         file_name = md.get("fileName")
+
+        scope_fields = _infer_doc_fields(chunk_id, md)
+        doc_id = scope_fields["doc_id"]
+        kg_scope = scope_fields["kg_scope"]
+        kg_id = scope_fields["kg_id"]
 
         chunk_info = _get_chunk_cache(chunk_id)
         chunk_text = chunk_info["text"]
@@ -185,6 +228,9 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
                             "file_name": file_name,
                             "chunk_id": chunk_id,
                             "paragraph_index": para_idx,
+                            "doc_id": doc_id,
+                            "kg_scope": kg_scope,
+                            "kg_id": kg_id,
                         },
                     )
                 # 句子单位（用于 fallback/次级解释）
@@ -200,6 +246,9 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
                             "file_name": file_name,
                             "chunk_id": chunk_id,
                             "sentence_index": sent_idx,
+                            "doc_id": doc_id,
+                            "kg_scope": kg_scope,
+                            "kg_id": kg_id,
                         },
                     )
             except Exception as e:
@@ -212,6 +261,9 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
                     "node_type": node_type,
                     "node_id": node_id,
                     "file_name": file_name,
+                    "doc_id": doc_id,
+                    "kg_scope": kg_scope,
+                    "kg_id": kg_id,
                     "evidence_text": snippet,
                     "evidence_start": start,
                     "evidence_end": end,
@@ -237,6 +289,9 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
                         "node_type": node_type,
                         "node_id": node_id,
                         "file_name": file_name,
+                        "doc_id": doc_id,
+                        "kg_scope": kg_scope,
+                        "kg_id": kg_id,
                         "evidence_text": snippet,
                         "evidence_start": start,
                         "evidence_end": end,
@@ -259,7 +314,10 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
     primary_query = """
     UNWIND $batch AS data
     MERGE (c:Chunk {id: data.chunk_id})
-    SET c.fileName = coalesce(data.file_name, c.fileName)
+    SET c.fileName = coalesce(data.file_name, c.fileName),
+        c.doc_id = coalesce(data.doc_id, c.doc_id),
+        c.kg_scope = coalesce(data.kg_scope, c.kg_scope),
+        c.kg_id = coalesce(data.kg_id, c.kg_id)
     WITH c, data
 
     CALL apoc.merge.node([data.node_type], {id: data.node_id}) YIELD node AS n
@@ -277,7 +335,10 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
         he.paragraph_end = data.paragraph_end,
         he.sentence_unit_id = data.sentence_unit_id,
         he.sentence_start = data.sentence_start,
-        he.sentence_end = data.sentence_end
+        he.sentence_end = data.sentence_end,
+        he.doc_id = coalesce(data.doc_id, he.doc_id),
+        he.kg_scope = coalesce(data.kg_scope, he.kg_scope),
+        he.kg_id = coalesce(data.kg_id, he.kg_id)
 
     WITH c, n, data
 
@@ -287,7 +348,10 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
         eu.start_char = data.primary_unit_start,
         eu.end_char = data.primary_unit_end,
         eu.chunk_id = data.chunk_id,
-        eu.fileName = coalesce(data.file_name, eu.fileName)
+        eu.fileName = coalesce(data.file_name, eu.fileName),
+        eu.doc_id = coalesce(data.doc_id, eu.doc_id),
+        eu.kg_scope = coalesce(data.kg_scope, eu.kg_scope),
+        eu.kg_id = coalesce(data.kg_id, eu.kg_id)
 
     MERGE (eu)-[:PART_OF]->(c)
 
@@ -298,15 +362,18 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
         sb.evidence_unit_id = data.primary_unit_id,
         sb.evidence_start = data.evidence_start,
         sb.evidence_end = data.evidence_end,
-        sb.evidence_text = data.evidence_text
+        sb.evidence_text = data.evidence_text,
+        sb.doc_id = coalesce(data.doc_id, sb.doc_id),
+        sb.kg_scope = coalesce(data.kg_scope, sb.kg_scope),
+        sb.kg_id = coalesce(data.kg_id, sb.kg_id)
 
     WITH c, data
 
     CALL apoc.do.when(
-        data.file_name IS NULL,
-        'RETURN 0 as _',
-        'MATCH (d:Document {fileName: $file_name}) MERGE (c)-[:PART_OF]->(d) RETURN 1 as _',
-        {c: c, file_name: data.file_name}
+        data.doc_id IS NULL,
+        'WITH $c AS c MATCH (d:Document {fileName: $file_name}) MERGE (c)-[:PART_OF]->(d) RETURN 1 as _',
+        'WITH $c AS c MATCH (d:Document {doc_id: $doc_id}) MERGE (c)-[:PART_OF]->(d) RETURN 1 as _',
+        {c: c, file_name: data.file_name, doc_id: data.doc_id}
     ) YIELD value
 
     RETURN count(*)
@@ -322,7 +389,10 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
         secondary_query = """
         UNWIND $batch AS data
         MERGE (c:Chunk {id: data.chunk_id})
-        SET c.fileName = coalesce(data.file_name, c.fileName)
+        SET c.fileName = coalesce(data.file_name, c.fileName),
+            c.doc_id = coalesce(data.doc_id, c.doc_id),
+            c.kg_scope = coalesce(data.kg_scope, c.kg_scope),
+            c.kg_id = coalesce(data.kg_id, c.kg_id)
         WITH c, data
 
         CALL apoc.merge.node([data.node_type], {id: data.node_id}) YIELD node AS n
@@ -333,7 +403,10 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
             eu.start_char = data.unit_start,
             eu.end_char = data.unit_end,
             eu.chunk_id = data.chunk_id,
-            eu.fileName = coalesce(data.file_name, eu.fileName)
+            eu.fileName = coalesce(data.file_name, eu.fileName),
+            eu.doc_id = coalesce(data.doc_id, eu.doc_id),
+            eu.kg_scope = coalesce(data.kg_scope, eu.kg_scope),
+            eu.kg_id = coalesce(data.kg_id, eu.kg_id)
 
         MERGE (eu)-[:PART_OF]->(c)
 
@@ -344,14 +417,17 @@ def merge_relationship_between_chunk_and_entites(graph: Neo4jGraph, graph_docume
             sb.evidence_unit_id = data.unit_id,
             sb.evidence_start = data.evidence_start,
             sb.evidence_end = data.evidence_end,
-            sb.evidence_text = data.evidence_text
+            sb.evidence_text = data.evidence_text,
+            sb.doc_id = coalesce(data.doc_id, sb.doc_id),
+            sb.kg_scope = coalesce(data.kg_scope, sb.kg_scope),
+            sb.kg_id = coalesce(data.kg_id, sb.kg_id)
 
         RETURN count(*)
         """
         graph.query(secondary_query, params={"batch": secondary_batch})
 
 
-def update_embedding_create_vector_index(graph, chunkId_chunkDoc_list, file_name):
+def update_embedding_create_vector_index(graph, chunkId_chunkDoc_list, file_name, doc_id: Optional[str] = None):
     # create embedding
     isEmbedding = os.getenv("IS_EMBEDDING")
     embedding_model = os.getenv("EMBEDDING_MODEL")
@@ -360,7 +436,6 @@ def update_embedding_create_vector_index(graph, chunkId_chunkDoc_list, file_name
     logging.info(f"embedding model:{embeddings} and dimesion:{dimension}")
     data_for_query = []
     logging.info(f"update embedding and vector index for chunks")
-    logging.info(f"看看chunkId_chunkDoc_list{chunkId_chunkDoc_list}")
 
     for row in chunkId_chunkDoc_list:
         if isEmbedding and isEmbedding.upper() == "TRUE":
@@ -377,29 +452,52 @@ def update_embedding_create_vector_index(graph, chunkId_chunkDoc_list, file_name
                 {"dimensions": dimension},
             )
 
-    query_to_create_embedding = """
-        UNWIND $data AS row
-        MATCH (d:Document {fileName: $fileName})
-        MERGE (c:Chunk {id: row.chunkId})
-        SET c.embedding = row.embeddings
-        MERGE (c)-[:PART_OF]->(d)
-    """
-    graph.query(query_to_create_embedding, params={"fileName": file_name, "data": data_for_query})
+    if not data_for_query:
+        return
+
+    if doc_id:
+        query_to_create_embedding = """
+            UNWIND $data AS row
+            MATCH (d:Document {doc_id: $doc_id})
+            MERGE (c:Chunk {id: row.chunkId})
+            SET c.embedding = row.embeddings
+            MERGE (c)-[:PART_OF]->(d)
+        """
+        graph.query(query_to_create_embedding, params={"doc_id": doc_id, "data": data_for_query})
+    else:
+        query_to_create_embedding = """
+            UNWIND $data AS row
+            MATCH (d:Document {fileName: $fileName})
+            MERGE (c:Chunk {id: row.chunkId})
+            SET c.embedding = row.embeddings
+            MERGE (c)-[:PART_OF]->(d)
+        """
+        graph.query(query_to_create_embedding, params={"fileName": file_name, "data": data_for_query})
 
 
-def create_relation_between_chunks(graph, file_name, chunks):
+def create_relation_between_chunks(
+    graph,
+    file_name: str,
+    chunks: List[Document],
+    doc_id: Optional[str] = None,
+    kg_scope: Optional[str] = None,
+    kg_id: Optional[str] = None,
+):
     """将文档所有 chunks 合并为一个 KG Chunk 节点，但把正文存到证据库（SQLite）。
 
     - Neo4j: 只存 Chunk.id / evidence_id / position / length / offsets / embedding 等
     - EvidenceStore(SQLite): 存 evidence_id -> content（全文或合并片段）
 
     这样可以避免 KG 过度膨胀，同时为“可追溯证据”提供独立存储。
+
+    重要：Chunk.id / evidence_id 使用 doc_id 前缀，避免 BG/Instance 或多文档冲突。
     """
 
     logging.info("Merging all chunks into one for Knowledge Graph (KG<->Evidence split enabled)")
 
     combined_content = " ".join([chunk.page_content for chunk in chunks])
-    current_chunk_id = hashlib.sha1(combined_content.encode()).hexdigest()
+    base_hash = hashlib.sha1(combined_content.encode()).hexdigest()
+    current_chunk_id = f"{doc_id}|{base_hash}" if doc_id else base_hash
 
     position = 1
     length = len(combined_content)
@@ -411,6 +509,9 @@ def create_relation_between_chunks(graph, file_name, chunks):
         "content_offset": offset,
         "fileName": file_name,
         "combined_chunk_ids": [current_chunk_id],
+        "doc_id": doc_id,
+        "kg_scope": kg_scope,
+        "kg_id": kg_id,
     }
     chunk_document = Document(page_content=combined_content, metadata=metadata)
 
@@ -425,6 +526,9 @@ def create_relation_between_chunks(graph, file_name, chunks):
             "mode": "merged_all_chunks",
             "length": length,
             "content_offset": offset,
+            "doc_id": doc_id,
+            "kg_scope": kg_scope,
+            "kg_id": kg_id,
         },
     )
 
@@ -437,6 +541,9 @@ def create_relation_between_chunks(graph, file_name, chunks):
             "length": length,
             "f_name": file_name,
             "content_offset": offset,
+            "doc_id": doc_id,
+            "kg_scope": kg_scope,
+            "kg_id": kg_id,
         }
     ]
 
@@ -447,21 +554,42 @@ def create_relation_between_chunks(graph, file_name, chunks):
         c.position = data.position,
         c.length = data.length,
         c.fileName = data.f_name,
-        c.content_offset = data.content_offset
+        c.content_offset = data.content_offset,
+        c.doc_id = coalesce(data.doc_id, c.doc_id),
+        c.kg_scope = coalesce(data.kg_scope, c.kg_scope),
+        c.kg_id = coalesce(data.kg_id, c.kg_id)
     WITH c, data
-    MATCH (d:Document {fileName: data.f_name})
-    MERGE (c)-[:PART_OF]->(d)
+
+    CALL apoc.do.when(
+        data.doc_id IS NULL,
+        'WITH $c AS c MATCH (d:Document {fileName: $file_name}) MERGE (c)-[:PART_OF]->(d) RETURN 1 as _',
+        'WITH $c AS c MATCH (d:Document {doc_id: $doc_id}) MERGE (c)-[:PART_OF]->(d) RETURN 1 as _',
+        {c: c, file_name: data.f_name, doc_id: data.doc_id}
+    ) YIELD value
+
+    RETURN count(*)
     """
     graph.query(query, params={"batch_data": batch_data})
 
     # FIRST_CHUNK
-    graph.query(
-        """
-        MATCH (d:Document {fileName: $f_name})
-        MATCH (c:Chunk {id: $chunk_id})
-        MERGE (d)-[:FIRST_CHUNK]->(c)
-        """,
-        params={"f_name": file_name, "chunk_id": current_chunk_id},
-    )
+    if doc_id:
+        graph.query(
+            """
+            MATCH (d:Document {doc_id: $doc_id})
+            MATCH (c:Chunk {id: $chunk_id})
+            MERGE (d)-[:FIRST_CHUNK]->(c)
+            """,
+            params={"doc_id": doc_id, "chunk_id": current_chunk_id},
+        )
+    else:
+        graph.query(
+            """
+            MATCH (d:Document {fileName: $f_name})
+            MATCH (c:Chunk {id: $chunk_id})
+            MERGE (d)-[:FIRST_CHUNK]->(c)
+            """,
+            params={"f_name": file_name, "chunk_id": current_chunk_id},
+        )
 
     return [{"chunk_id": current_chunk_id, "chunk_doc": chunk_document}]
+

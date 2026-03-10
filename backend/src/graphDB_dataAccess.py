@@ -8,10 +8,186 @@ from src.shared.constants import BUCKET_UPLOAD
 from src.entities.source_node import sourceNode
 import json
 
+
 class graphDBdataAccess:
 
     def __init__(self, graph: Neo4jGraph):
         self.graph = graph
+
+    # ------------------------------------------------------------------
+    # Scoped (BG-KG / Instance-KG) helpers
+    # ------------------------------------------------------------------
+
+    def create_source_node_scoped(self, obj_source_node: sourceNode):
+        """Create Document node using doc_id as MERGE key when available.
+
+        This keeps legacy create_source_node() untouched, but enables running
+        multiple KGs in one Neo4j db without collisions.
+        """
+        doc_id = getattr(obj_source_node, "doc_id", None)
+        if not doc_id:
+            return self.create_source_node(obj_source_node)
+
+        try:
+            job_status = "New"
+            logging.info("creating scoped source node if does not exist")
+
+            self.graph.query(
+                """
+                MERGE (d:Document {doc_id: $doc_id})
+                SET d.fileName = $fn,
+                    d.kg_scope = $kg_scope,
+                    d.kg_id = $kg_id,
+                    d.fileSize = $fs,
+                    d.fileType = $ft,
+                    d.status = $st,
+                    d.url = $url,
+                    d.awsAccessKeyId = $awsacc_key_id,
+                    d.fileSource = $f_source,
+                    d.createdAt = $c_at,
+                    d.updatedAt = $u_at,
+                    d.processingTime = $pt,
+                    d.errorMessage = $e_message,
+                    d.nodeCount = $n_count,
+                    d.relationshipCount = $r_count,
+                    d.model = $model,
+                    d.gcsBucket = $gcs_bucket,
+                    d.gcsBucketFolder = $gcs_bucket_folder,
+                    d.language = $language,
+                    d.gcsProjectId = $gcs_project_id,
+                    d.is_cancelled = False,
+                    d.total_chunks = 0,
+                    d.processed_chunk = 0,
+                    d.total_pages = $total_pages,
+                    d.access_token = $access_token
+                """,
+                {
+                    "doc_id": doc_id,
+                    "fn": obj_source_node.file_name,
+                    "kg_scope": getattr(obj_source_node, "kg_scope", None),
+                    "kg_id": getattr(obj_source_node, "kg_id", None),
+                    "fs": obj_source_node.file_size,
+                    "ft": obj_source_node.file_type,
+                    "st": job_status,
+                    "url": obj_source_node.url,
+                    "awsacc_key_id": obj_source_node.awsAccessKeyId,
+                    "f_source": obj_source_node.file_source,
+                    "c_at": obj_source_node.created_at,
+                    "u_at": obj_source_node.created_at,
+                    "pt": 0,
+                    "e_message": "",
+                    "n_count": 0,
+                    "r_count": 0,
+                    "model": obj_source_node.model,
+                    "gcs_bucket": obj_source_node.gcsBucket,
+                    "gcs_bucket_folder": obj_source_node.gcsBucketFolder,
+                    "language": obj_source_node.language,
+                    "gcs_project_id": obj_source_node.gcsProjectId,
+                    "total_pages": obj_source_node.total_pages,
+                    "access_token": obj_source_node.access_token,
+                },
+            )
+        except Exception as e:
+            error_message = str(e)
+            logging.error(f"Error in create_source_node_scoped: {error_message}")
+            # Best effort mark doc failed
+            try:
+                self.update_exception_db_scoped(doc_id, error_message)
+            except Exception:
+                pass
+            raise
+
+    def update_source_node_scoped(self, obj_source_node: sourceNode):
+        """Update Document by doc_id. Uses SET d += $props to do partial updates."""
+        doc_id = getattr(obj_source_node, "doc_id", None)
+        if not doc_id:
+            return self.update_source_node(obj_source_node)
+
+        try:
+            params = {"doc_id": doc_id}
+
+            # Always keep human-readable fileName
+            if getattr(obj_source_node, "file_name", None):
+                params["fileName"] = obj_source_node.file_name
+
+            if getattr(obj_source_node, "kg_scope", None):
+                params["kg_scope"] = obj_source_node.kg_scope
+            if getattr(obj_source_node, "kg_id", None):
+                params["kg_id"] = obj_source_node.kg_id
+
+            if obj_source_node.status:
+                params["status"] = obj_source_node.status
+            if obj_source_node.created_at is not None:
+                params["createdAt"] = obj_source_node.created_at
+            if obj_source_node.updated_at is not None:
+                params["updatedAt"] = obj_source_node.updated_at
+            if obj_source_node.processing_time not in (None, 0):
+                # processing_time may be timedelta
+                try:
+                    params["processingTime"] = round(obj_source_node.processing_time.total_seconds(), 2)
+                except Exception:
+                    params["processingTime"] = obj_source_node.processing_time
+            if obj_source_node.node_count not in (None, 0):
+                params["nodeCount"] = obj_source_node.node_count
+            if obj_source_node.relationship_count not in (None, 0):
+                params["relationshipCount"] = obj_source_node.relationship_count
+            if obj_source_node.model:
+                params["model"] = obj_source_node.model
+            if obj_source_node.total_pages not in (None, 0):
+                params["total_pages"] = obj_source_node.total_pages
+            if obj_source_node.total_chunks not in (None, 0):
+                params["total_chunks"] = obj_source_node.total_chunks
+            if obj_source_node.is_cancelled not in (None, False):
+                params["is_cancelled"] = obj_source_node.is_cancelled
+            if obj_source_node.processed_chunk not in (None, 0):
+                params["processed_chunk"] = obj_source_node.processed_chunk
+
+            param = {"props": params}
+            query = "MERGE (d:Document {doc_id: $props.doc_id}) SET d += $props"
+            logging.info("Update scoped source node properties")
+            self.graph.query(query, param)
+        except Exception as e:
+            error_message = str(e)
+            logging.error(f"Error in update_source_node_scoped: {error_message}")
+            raise
+
+    def get_current_status_document_node_scoped(self, doc_id: str):
+        query = """
+                MATCH(d:Document {doc_id : $doc_id})
+                RETURN d.status AS Status , d.processingTime AS processingTime,
+                       d.nodeCount AS nodeCount, d.model as model, d.relationshipCount as relationshipCount,
+                       d.total_pages AS total_pages, d.total_chunks AS total_chunks , d.fileSize as fileSize,
+                       d.is_cancelled as is_cancelled, d.processed_chunk as processed_chunk, d.fileSource as fileSource,
+                       d.fileName as fileName
+                """
+        param = {"doc_id": doc_id}
+        return self.execute_query(query, param)
+
+    def update_exception_db_scoped(self, doc_id: str, exp_msg: str):
+        try:
+            job_status = "Failed"
+            result = self.get_current_status_document_node_scoped(doc_id)
+            if result:
+                is_cancelled_status = result[0].get("is_cancelled")
+                if bool(is_cancelled_status) is True:
+                    job_status = "Cancelled"
+
+            self.graph.query(
+                """
+                MERGE (d:Document {doc_id: $doc_id})
+                SET d.status = $status,
+                    d.errorMessage = $error_msg
+                """,
+                {"doc_id": doc_id, "status": job_status, "error_msg": exp_msg},
+            )
+        except Exception as e:
+            error_message = str(e)
+            logging.error(f"Error in updating scoped document node status as failed: {error_message}")
+            raise
+
+    # ------------------------------------------------------------------
+    # Legacy methods (unchanged)
+    # ------------------------------------------------------------------
 
     def update_exception_db(self, file_name, exp_msg):
         try:
@@ -26,7 +202,7 @@ class graphDBdataAccess:
             error_message = str(e)
             logging.error(f"Error in updating document node status as failed: {error_message}")
             raise Exception(error_message)
-        
+
     def create_source_node(self, obj_source_node:sourceNode):
         try:
             job_status = "New"
@@ -39,11 +215,11 @@ class graphDBdataAccess:
                             d.gcsBucketFolder= $gcs_bucket_folder, d.language= $language,d.gcsProjectId= $gcs_project_id,
                             d.is_cancelled=False, d.total_chunks=0, d.processed_chunk=0, d.total_pages=$total_pages,
                             d.access_token=$access_token""",
-                            {"fn":obj_source_node.file_name, "fs":obj_source_node.file_size, "ft":obj_source_node.file_type, "st":job_status, 
+                            {"fn":obj_source_node.file_name, "fs":obj_source_node.file_size, "ft":obj_source_node.file_type, "st":job_status,
                             "url":obj_source_node.url,
                             "awsacc_key_id":obj_source_node.awsAccessKeyId, "f_source":obj_source_node.file_source, "c_at":obj_source_node.created_at,
                             "u_at":obj_source_node.created_at, "pt":0, "e_message":'', "n_count":0, "r_count":0, "model":obj_source_node.model,
-                            "gcs_bucket": obj_source_node.gcsBucket, "gcs_bucket_folder": obj_source_node.gcsBucketFolder, 
+                            "gcs_bucket": obj_source_node.gcsBucket, "gcs_bucket_folder": obj_source_node.gcsBucketFolder,
                             "language":obj_source_node.language, "gcs_project_id":obj_source_node.gcsProjectId, "total_pages": obj_source_node.total_pages,
                             "access_token":obj_source_node.access_token})
         except Exception as e:
@@ -51,7 +227,7 @@ class graphDBdataAccess:
             logging.info(f"error_message = {error_message}")
             self.update_exception_db(self, obj_source_node.file_name, error_message)
             raise Exception(error_message)
-        
+
     def update_source_node(self, obj_source_node:sourceNode):
         try:
 
@@ -93,7 +269,7 @@ class graphDBdataAccess:
                 params['processed_chunk'] = obj_source_node.processed_chunk
 
             param= {"props":params}
-            
+
             print(f'Base Param value 1 : {param}')
             query = "MERGE(d:Document {fileName :$props.fileName}) SET d += $props"
             logging.info("Update source node properties")
@@ -102,7 +278,7 @@ class graphDBdataAccess:
             error_message = str(e)
             self.update_exception_db(self.file_name,error_message)
             raise Exception(error_message)
-    
+
     def get_source_list(self):
         """
         Args:
@@ -114,14 +290,14 @@ class graphDBdataAccess:
             model: Type of model to use ('Diffbot'or'OpenAI GPT')
         Returns:
         Returns a list of sources that are in the database by querying the graph and
-        sorting the list by the last updated date. 
+        sorting the list by the last updated date.
         """
         logging.info("Get existing files list from graph")
         query = "MATCH(d:Document) WHERE d.fileName IS NOT NULL RETURN d ORDER BY d.updatedAt DESC"
         result = self.graph.query(query)
         list_of_json_objects = [entry['d'] for entry in result]
         return list_of_json_objects
-        
+
     def update_KNN_graph(self):
         """
         Update the graph node with SIMILAR relationship where embedding scrore match
@@ -140,7 +316,7 @@ class graphDBdataAccess:
                                 )
         else:
             logging.info("Vector index does not exist, So KNN graph not update")
-            
+
     def connection_check(self):
         """
         Args:
@@ -166,7 +342,7 @@ class graphDBdataAccess:
                 """
         param = {"file_name" : file_name}
         return self.execute_query(query, param)
-    
+
     def delete_file_from_graph(self, filenames, source_types, deleteEntities:str, merged_dir:str, uri):
         # filename_list = filenames.split(',')
         filename_list= list(map(str.strip, json.loads(filenames)))
@@ -204,16 +380,16 @@ class graphDBdataAccess:
             } 
             detach delete c, d
             return sum(entities) as deletedEntities, count(*) as deletedChunks
-            """    
+            """
         param = {"filename_list" : filename_list, "source_types_list": source_types_list}
         if deleteEntities == "true":
             result = self.execute_query(query_to_delete_document_and_entities, param)
             logging.info(f"Deleting {len(filename_list)} documents = '{filename_list}' from '{source_types_list}' from database")
         else :
-            result = self.execute_query(query_to_delete_document, param)    
+            result = self.execute_query(query_to_delete_document, param)
             logging.info(f"Deleting {len(filename_list)} documents = '{filename_list}' from '{source_types_list}' with their entities from database")
         return result, len(filename_list)
-    
+
     def list_unconnected_nodes(self):
         query = """
                 MATCH (e:!Chunk&!Document) 
@@ -232,7 +408,7 @@ class graphDBdataAccess:
         nodes_list = self.execute_query(query)
         total_nodes = self.execute_query(query_total_nodes)
         return nodes_list, total_nodes[0]
-    
+
     def delete_unconnected_nodes(self,unconnected_entities_list):
         entities_list = list(map(str.strip, json.loads(unconnected_entities_list)))
         query = """
@@ -241,6 +417,7 @@ class graphDBdataAccess:
         """
         param = {"elementIds":entities_list}
         return self.execute_query(query,param)
+
     def export_concept(self):
         query_entities = """
         MATCH (e)

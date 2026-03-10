@@ -4,8 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="提取因果链">
-      <change afterPath="$PROJECT_DIR$/backend/src/chunk_utils.py" afterDir="false" />
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="提取因果链1">
+      <change afterPath="$PROJECT_DIR$/README_APPLY_PATCH.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/kg_content.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/cypher/constraints_kg_scope.cypher" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
@@ -21,15 +23,11 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/data_utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/diffbot_transformer.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/diffbot_transformer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/evidence_store/sqlite_store.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/evidence_store/sqlite_store.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/gemini_llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/gemini_llm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graph_transformers/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_transformers/llm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/groq_llama3_llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/groq_llama3_llm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/llm.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/score.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/score.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/entities/source_node.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/entities/source_node.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/make_relationships.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/make_relationships.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/openAI_llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/openAI_llm.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -365,7 +363,15 @@
       <option name="project" value="LOCAL" />
       <updated>1772664370601</updated>
     </task>
-    <option name="localTasksCounter" value="13" />
+    <task id="LOCAL-00013" summary="提取因果链1">
+      <option name="closed" value="true" />
+      <created>1772739495582</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1772739495582</updated>
+    </task>
+    <option name="localTasksCounter" value="14" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -395,7 +401,8 @@
     <MESSAGE value="量化模块更新3" />
     <MESSAGE value="受控分类prompt" />
     <MESSAGE value="提取因果链" />
-    <option name="LAST_COMMIT_MESSAGE" value="提取因果链" />
+    <MESSAGE value="提取因果链1" />
+    <option name="LAST_COMMIT_MESSAGE" value="提取因果链1" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -403,11 +410,6 @@
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/JointLK/modeling/modeling_encoder.py</url>
           <option name="timeStamp" value="3" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/backend/score.py</url>
-          <line>228</line>
-          <option name="timeStamp" value="11" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$USER_HOME$/.conda/envs/llm-graph-builder/Lib/site-packages/langchain_community/graphs/neo4j_graph.py</url>
