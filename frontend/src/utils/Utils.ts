@@ -107,6 +107,10 @@ export const getNodeCaption = (node: any) => {
   if (node.properties.fileName) {
     return node.properties.fileName;
   }
+
+  if (node.properties.orig_id) {
+    return node.properties.orig_id;
+  }
   return node.properties.id;
 };
 

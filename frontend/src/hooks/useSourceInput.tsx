@@ -18,7 +18,7 @@ export default function useSourceInput(
   const [isFocused, setIsFocused] = useState<boolean>(false);
   const [status, setStatus] = useState<'unknown' | 'success' | 'info' | 'warning' | 'danger'>('unknown');
   const [statusMessage, setStatusMessage] = useState<string>('');
-  const { setFilesData, model, filesData } = useFileContext();
+  const { setFilesData, model, filesData, kgScope, kgId } = useFileContext();
   const { userCredentials } = useCredentials();
 
   const onChangeHandler: React.ChangeEventHandler<HTMLInputElement> = useCallback((e) => {
@@ -55,6 +55,8 @@ export default function useSourceInput(
         model: model,
         fileSource: fileSource,
         processingProgress: undefined,
+        kg_scope: kgScope,
+        kg_id: kgId,
       };
       if (url.trim() != '') {
         setIsValid(validator(url) && isFocused);
@@ -68,6 +70,8 @@ export default function useSourceInput(
             userCredentials: userCredentials as UserCredentials,
             model: model,
             source_type: fileSource,
+            kg_scope: kgScope,
+            kg_id: kgId,
           };
           if (isWikiQuery) {
             params.wikiquery = url.trim();
@@ -157,7 +161,7 @@ export default function useSourceInput(
       }, 3000);
     },
 
-    [filesData, isWikiQuery, isYoutubeLink, isWebLink, isValid, fileSource, model]
+    [filesData, isWikiQuery, isYoutubeLink, isWebLink, isValid, fileSource, model, kgScope, kgId]
   );
 
   return {

@@ -35,7 +35,9 @@ export const extractAPI = async (
   allowedRelationship?: string[],
   gcs_project_id?: string,
   language?: string,
-  access_token?: string
+  access_token?: string,
+  kg_scope?: string,
+  kg_id?: string
 ): Promise<any> => {
   const urlExtract = `${url()}/extract`;
   const method: Method = 'post';
@@ -51,6 +53,8 @@ export const extractAPI = async (
       file_name,
       allowedNodes,
       allowedRelationship,
+      kg_scope,
+      kg_id,
     };
   } else if (source_type === 'Wikipedia') {
     additionalParams = {
@@ -60,6 +64,8 @@ export const extractAPI = async (
       file_name,
       allowedNodes,
       allowedRelationship,
+      kg_scope,
+      kg_id,
       language,
     };
   } else if (source_type === 'gcs bucket') {
@@ -72,6 +78,8 @@ export const extractAPI = async (
       file_name,
       allowedNodes,
       allowedRelationship,
+      kg_scope,
+      kg_id,
       gcs_project_id,
       access_token,
     };
@@ -83,6 +91,8 @@ export const extractAPI = async (
       file_name,
       allowedNodes,
       allowedRelationship,
+      kg_scope,
+      kg_id,
     };
   } else if (source_type === 'web-url') {
     additionalParams = {
@@ -92,6 +102,8 @@ export const extractAPI = async (
       file_name,
       allowedNodes,
       allowedRelationship,
+      kg_scope,
+      kg_id,
     };
   } else {
     additionalParams = {
@@ -100,6 +112,8 @@ export const extractAPI = async (
       file_name,
       allowedNodes,
       allowedRelationship,
+      kg_scope,
+      kg_id,
     };
   }
   const response = await apiCall(urlExtract, method, commonParams, additionalParams);

@@ -15,7 +15,6 @@ from src.document_sources.wikipedia import *
 from src.document_sources.youtube import *
 from src.shared.common_fn import *
 from src.make_relationships import *
-from src.kg_context import build_kg_context, scope_graph_documents
 from src.document_sources.web_pages import *
 # from src.graph_export import generate_gpickle_export,export_jointlk_json_artifacts
 

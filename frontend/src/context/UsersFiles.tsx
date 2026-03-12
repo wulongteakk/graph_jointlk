@@ -7,6 +7,11 @@ interface showTextFromSchemaDialogType {
   show: boolean;
 }
 interface FileContextType {
+
+  kgScope: string;
+  setKgScope: Dispatch<SetStateAction<string>>;
+  kgId: string;
+  setKgId: Dispatch<SetStateAction<string>>;
   files: (File | null)[] | [];
   filesData: CustomFile[] | [];
   setFiles: Dispatch<SetStateAction<(File | null)[]>>;
@@ -48,6 +53,8 @@ const FileContextProvider: FC<FileContextProviderProps> = ({ children }) => {
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [chatMode, setchatMode] = useState<string>('graph+vector');
+  const [kgScope, setKgScope] = useState<string>('inst');
+  const [kgId, setKgId] = useState<string>('default');
   const { userCredentials } = useCredentials();
   const [isSchema, setIsSchema] = useState<boolean>(false);
   const [showTextFromSchemaDialog, setShowTextFromSchemaDialog] = useState<showTextFromSchemaDialogType>({
@@ -91,6 +98,10 @@ const FileContextProvider: FC<FileContextProviderProps> = ({ children }) => {
     setSelectedSchemas,
     chatMode,
     setchatMode,
+    kgScope,
+    setKgScope,
+    kgId,
+    setKgId,
     isSchema,
     setIsSchema,
     setShowTextFromSchemaDialog,

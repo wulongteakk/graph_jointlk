@@ -45,6 +45,12 @@ const urlScanAPI = async (props: ScanProps) => {
     if (props?.access_token) {
       formData.append('access_token', props.access_token);
     }
+    if (props?.kg_scope) {
+      formData.append('kg_scope', props.kg_scope);
+    }
+    if (props?.kg_id) {
+      formData.append('kg_id', props.kg_id);
+    }
 
     const response: ServerResponse = await axios.post(`${url()}/url/scan`, formData, {
       headers: {

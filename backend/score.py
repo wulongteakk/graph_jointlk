@@ -10,7 +10,7 @@ from neo4j.graph import Node, Relationship
 
 from src.llm_api_request import ChatRequest
 from src.main import *
-from src.kg_context import build_kg_context
+
 # from src.QA_integration import *
 from src.risk_analysis import get_risk_metrics, get_risk_probability_assessment
 from src.QA_integration_new import *
@@ -791,8 +791,8 @@ async def api_assess_risk_probability(
     """
     try:
         # TODO: 从用户查询中提取核心关键词 (例如 "A区深基坑")
-        # 为简化，我们暂时直接使用整个查询字符串
-        # 在生产中，您可能需要先用 LLM 提取查询的核心实体
+        # 为简化，暂时直接使用整个查询字符串
+        # 后续可能需要先用 LLM 提取查询的核心实体
         core_query = query  # 假设 query 已经包含了核心词，如 "A区深基坑"
 
         graph = Neo4jGraph(url=uri, database=database, username=userName, password=password)

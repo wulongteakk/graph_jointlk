@@ -1,0 +1,179 @@
+# 轻量先验配置（不是背景图谱）
+# 目标：把 CTP / 层间约束 / 触发词规则 / beam penalty 外置成可调参数
+version: 1
+
+relations:
+  whitelist:
+    - CAUSES
+    - LEADS_TO
+    - RESULTS_IN
+    - TRIGGERS
+    - INDUCES
+    - ENABLES
+    - WORSENS
+    - PREVENTS
+    - MITIGATES
+    - INHIBITS
+
+# CTP = Causal Transition Prior
+# 可按你的因果层级体系继续扩展
+ctp_allowed_transitions:
+  ROOT: ["CAUSE", "FACTOR", "CONDITION", "ACTION"]
+  CAUSE: ["MECHANISM", "INTERMEDIATE", "STATE", "EVENT", "OUTCOME"]
+  FACTOR: ["MECHANISM", "STATE", "EVENT", "OUTCOME"]
+  CONDITION: ["STATE", "EVENT", "OUTCOME"]
+  ACTION: ["STATE", "EVENT", "OUTCOME"]
+  MECHANISM: ["INTERMEDIATE", "STATE", "EVENT", "OUTCOME"]
+  INTERMEDIATE: ["INTERMEDIATE", "STATE", "EVENT", "OUTCOME"]
+  STATE: ["STATE", "EVENT", "OUTCOME"]
+  EVENT: ["EVENT", "OUTCOME"]
+  OUTCOME: []
+
+# 用于 beam search 的层优先级，可选
+layer_order:
+  - ROOT
+  - CAUSE
+  - FACTOR
+  - CONDITION
+  - ACTION
+  - MECHANISM
+  - INTERMEDIATE
+  - STATE
+  - EVENT
+  - OUTCOME
+
+trigger_words:
+  zh:
+    - 导致
+    - 引发
+    - 引起
+    - 从而
+    - 因此
+    - 使得
+    - 由于
+    - 致使
+    - 造成
+    - 诱发
+    - 促使
+    - 以致
+    - 继而
+    - 结果
+    - 所以
+    - 因为
+    - 进而
+    - 带来
+    - 促成
+    - 形成
+  en:
+    - cause
+    - causes
+    - caused
+    - lead to
+    - leads to
+    - led to
+    - result in
+    - results in
+    - resulted in
+    - trigger
+    - triggers
+    - triggered
+    - induce
+    - induces
+    - induced
+    - due to
+    - because of
+    - thereby
+    - thus
+    - hence
+    - so that
+
+relation_aliases:
+  CAUSES:
+    - 导致
+    - 引发
+    - 引起
+    - 造成
+    - 致使
+    - cause
+    - causes
+    - caused
+  LEADS_TO:
+    - 从而
+    - 进而
+    - 继而
+    - lead to
+    - leads to
+    - led to
+  RESULTS_IN:
+    - 因此
+    - 结果
+    - resulting in
+    - result in
+    - results in
+  TRIGGERS:
+    - 触发
+    - trigger
+    - triggers
+    - triggered
+  INDUCES:
+    - 诱发
+    - induce
+    - induces
+    - induced
+  ENABLES:
+    - 使得
+    - 促成
+    - enable
+    - enables
+    - enabled
+  WORSENS:
+    - 恶化
+    - worsen
+    - worsens
+    - worsened
+  PREVENTS:
+    - 防止
+    - 预防
+    - prevent
+    - prevents
+    - prevented
+  MITIGATES:
+    - 缓解
+    - 降低
+    - mitigate
+    - mitigates
+    - mitigated
+  INHIBITS:
+    - 抑制
+    - inhibit
+    - inhibits
+    - inhibited
+
+beam_search:
+  max_hops: 6
+  top_k: 8
+  hop_penalty: 0.25
+  skip_layer_penalty: 0.75
+  distance_penalty: 0.15
+  missing_layer_penalty: 0.50
+  unsupported_edge_penalty: 1.00
+  duplicate_node_penalty: 0.40
+
+evidence_gate:
+  min_support_score: 0.55
+  min_lexical_overlap: 0.18
+  require_trigger_or_reltype: true
+  trigger_bonus: 0.25
+  two_sided_entity_bonus: 0.20
+  ordered_bonus: 0.10
+  negative_cues:
+    zh: ["尚未证实", "不一定", "未导致", "未引起", "并非由于"]
+    en: ["not necessarily", "not cause", "did not cause", "not lead to", "unconfirmed"]
+
+training:
+  max_text_length: 320
+  max_node_text_length: 24
+  hidden_size: 256
+  num_gnn_layers: 3
+  dropout: 0.20
+  relation_loss_weight: 0.20

@@ -22,7 +22,7 @@ const S3Modal: React.FC<S3ModalProps> = ({ hideModal, open }) => {
   const [isFocused, setisFocused] = useState<boolean>(false);
   const [isValid, setValid] = useState<boolean>(false);
   const { userCredentials } = useCredentials();
-  const { setFilesData, model, filesData } = useFileContext();
+  const { setFilesData, model, filesData, kgScope, kgId } = useFileContext();
 
   const reset = () => {
     setBucketUrl('');
@@ -42,6 +42,8 @@ const S3Modal: React.FC<S3ModalProps> = ({ hideModal, open }) => {
       model: model,
       fileSource: 's3 bucket',
       processingProgress: undefined,
+      kg_scope: kgScope,
+      kg_id: kgId,
     };
     if (url) {
       setValid(validation(bucketUrl) && isFocused);
@@ -63,6 +65,9 @@ const S3Modal: React.FC<S3ModalProps> = ({ hideModal, open }) => {
           accessKey: accessKey.trim(),
           secretKey: secretKey.trim(),
           source_type: 's3 bucket',
+          kg_scope: kgScope,
+          kg_id: kgId,
+
         });
         setStatus('success');
         if (apiResponse?.data.status == 'Failed' || !apiResponse.data) {

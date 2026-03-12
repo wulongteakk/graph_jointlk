@@ -19,7 +19,8 @@ const GCSModal: React.FC<GCSModalProps> = ({ hideModal, open, openGCSModal }) =>
   const { userCredentials } = useCredentials();
   const { showAlert } = useAlertContext();
 
-  const { setFilesData, model, filesData } = useFileContext();
+
+  const { setFilesData, model, filesData, kgScope, kgId } = useFileContext();
 
   const defaultValues: CustomFileBase = {
     processing: 0,
@@ -30,6 +31,8 @@ const GCSModal: React.FC<GCSModalProps> = ({ hideModal, open, openGCSModal }) =>
     model: model,
     fileSource: 'gcs bucket',
     processingProgress: undefined,
+    kg_scope: kgScope,
+    kg_id: kgId,
   };
 
   const reset = () => {
@@ -65,6 +68,8 @@ const GCSModal: React.FC<GCSModalProps> = ({ hideModal, open, openGCSModal }) =>
           source_type: 'gcs bucket',
           gcs_project_id: projectId,
           access_token: codeResponse.access_token,
+          kg_scope: kgScope,
+          kg_id: kgId,
         });
         if (apiResponse.data.status == 'Failed' || !apiResponse.data) {
           showAlert('error', apiResponse?.data?.message);
@@ -101,6 +106,8 @@ const GCSModal: React.FC<GCSModalProps> = ({ hideModal, open, openGCSModal }) =>
               // total_pages: 'N/A',
               id: uuidv4(),
               access_token: codeResponse.access_token,
+              kg_scope: kgScope,
+              kg_id: kgId,
               ...defaultValues,
             });
           } else {
@@ -116,6 +123,8 @@ const GCSModal: React.FC<GCSModalProps> = ({ hideModal, open, openGCSModal }) =>
               fileSource: defaultValues.fileSource,
               processingProgress: defaultValues.processingProgress,
               access_token: codeResponse.access_token,
+              kg_scope: kgScope,
+              kg_id: kgId,
               // total_pages: 'N/A',
             });
           }

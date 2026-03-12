@@ -13,7 +13,7 @@ import { InformationCircleIconOutline } from '@neo4j-ndl/react/icons';
 import IconButtonWithToolTip from '../../UI/IconButtonToolTip';
 
 const DropZone: FunctionComponent = () => {
-  const { filesData, setFilesData, model } = useFileContext();
+  const { filesData, setFilesData, model, kgScope, kgId } = useFileContext();
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isClicked, setIsClicked] = useState<boolean>(false);
   const { userCredentials } = useCredentials();
@@ -23,7 +23,6 @@ const DropZone: FunctionComponent = () => {
     alertMessage: '',
   });
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-
   const onDropHandler = (f: Partial<globalThis.File>[]) => {
     setIsClicked(true);
     setSelectedFiles(f.map((f) => f as File));
@@ -38,6 +37,8 @@ const DropZone: FunctionComponent = () => {
         fileSource: 'local file',
         uploadprogess: 0,
         processingProgress: undefined,
+        kg_scope: kgScope,
+        kg_id: kgId,
       };
 
       const copiedFilesData: CustomFile[] = [...filesData];
@@ -105,6 +106,8 @@ const DropZone: FunctionComponent = () => {
         formData.append('totalChunks', totalChunks.toString());
         formData.append('originalname', file.name);
         formData.append('model', model);
+        formData.append('kg_scope', kgScope);
+        formData.append('kg_id', kgId);
         for (const key in userCredentials) {
           formData.append(key, userCredentials[key]);
         }

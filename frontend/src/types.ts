@@ -23,6 +23,8 @@ export interface CustomFileBase extends Partial<globalThis.File> {
   language?: string;
   processingProgress?: number;
   access_token?: string;
+  kg_scope?: string;
+  kg_id?: string;
   checked?: boolean;
 }
 export interface CustomFile extends CustomFileBase {
@@ -65,6 +67,8 @@ export type ExtractParams = {
   gcs_project_id?: string;
   language?: string;
   access_token?: string;
+  kg_scope?: string;
+  kg_id?: string;
 } & { [key: string]: any };
 
 export type UploadParams = {
@@ -73,6 +77,8 @@ export type UploadParams = {
   chunkNumber: number;
   totalChunks: number;
   originalname: string;
+  kg_scope?: string;
+  kg_id?: string;
 } & { [key: string]: any };
 
 export type FormDataParams = ExtractParams | UploadParams;
@@ -128,6 +134,8 @@ export interface SourceNode {
   total_chunks?: number;
   // total_pages?: number;
   access_token?: string;
+  kg_scope?: string;
+  kg_id?: string;
 }
 
 export interface SideNavProps {
@@ -156,7 +164,7 @@ export interface ContentProps {
   setIsSchema: Dispatch<SetStateAction<boolean>>;
   showEnhancementDialog: boolean;
   setshowEnhancementDialog: Dispatch<SetStateAction<boolean>>;
-  closeSettingModal:()=>void
+  closeSettingModal: () => void;
 }
 
 export interface FileTableProps {
@@ -326,6 +334,8 @@ export interface ScanProps {
   source_type?: string;
   gcs_project_id?: string;
   access_token?: string;
+  kg_scope?: string;
+  kg_id?: string;
 }
 export type alertStateType = {
   showAlert: boolean;
@@ -583,7 +593,7 @@ export interface RagStepInitialRetrieval {
   retrieved_context: string;
   retrieved_nodes: any[]; //
   retrieved_relationships: any[];
-};
+}
 
 export interface JointLkEnhancement {
   status?: string;
@@ -596,7 +606,8 @@ export interface JointLkEnhancement {
     name: string;
     score: number;
   }[];
-  pruning_data: { // 新增
+  pruning_data: {
+    // 新增
     before: {
       nodes: any[];
       relationships: any[];
@@ -611,7 +622,7 @@ export interface JointLkEnhancement {
 export interface RagSteps {
   initial_retrieval: RagStepInitialRetrieval;
   jointlk_enhancement: JointLkEnhancement;
-};
+}
 
 export interface PruneResult {
   nodes_before: number;

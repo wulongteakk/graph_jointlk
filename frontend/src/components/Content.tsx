@@ -26,7 +26,6 @@ import GraphEnhancementDialog from './Popups/GraphEnhancementDialog';
 import { OverridableStringUnion } from '@mui/types';
 import { AlertColor, AlertPropsColorOverrides } from '@mui/material';
 
-
 const Content: React.FC<ContentProps> = ({
   isLeftExpanded,
   isRightExpanded,
@@ -35,7 +34,7 @@ const Content: React.FC<ContentProps> = ({
   setIsSchema,
   showEnhancementDialog,
   setshowEnhancementDialog,
-  closeSettingModal
+  closeSettingModal,
 }) => {
   const [init, setInit] = useState<boolean>(false);
   const [openConnection, setOpenConnection] = useState<boolean>(false);
@@ -60,6 +59,8 @@ const Content: React.FC<ContentProps> = ({
     setSelectedNodes,
     setRowSelection,
     setSelectedRels,
+    kgScope,
+    kgId,
   } = useFileContext();
   const [viewPoint, setViewPoint] = useState<'tableView' | 'showGraphView' | 'chatInfoView'>('tableView');
   const [showDeletePopUp, setshowDeletePopUp] = useState<boolean>(false);
@@ -203,7 +204,9 @@ const Content: React.FC<ContentProps> = ({
         selectedRels.map((t) => t.value),
         fileItem.google_project_id,
         fileItem.language,
-        fileItem.access_token
+        fileItem.access_token,
+        fileItem.kg_scope ?? kgScope,
+        fileItem.kg_id ?? kgId
       );
 
       if (apiResponse?.status === 'Failed') {
@@ -677,28 +680,29 @@ const Content: React.FC<ContentProps> = ({
             isDisabled={false}
           />
           <Flex flexDirection='row' gap='4' className='self-end'>
-        <ButtonWithToolTip
-          text="Jointlk Reasoning process"
-          placement="top"
-          disabled={showGraphCheck}
-          label="Jointlk Reasoning process"
-          onClick={() => setShowJointlkModal(true)}
-          className="mr-0.5 bg-red-600 hover:bg-red-700 text-white"
-        >
-          {buttonCaptions.JointlkReasoningprocess} {selectedfileslength && completedfileNo ? `(${completedfileNo})` : ''}
-          {selectedfileslength > 0 && newFilecheck ? `(${newFilecheck})` : ''}
-        </ButtonWithToolTip>
+            <ButtonWithToolTip
+              text='Jointlk Reasoning process'
+              placement='top'
+              disabled={showGraphCheck}
+              label='Jointlk Reasoning process'
+              onClick={() => setShowJointlkModal(true)}
+              className='mr-0.5 bg-red-600 hover:bg-red-700 text-white'
+            >
+              {buttonCaptions.JointlkReasoningprocess}{' '}
+              {selectedfileslength && completedfileNo ? `(${completedfileNo})` : ''}
+              {selectedfileslength > 0 && newFilecheck ? `(${newFilecheck})` : ''}
+            </ButtonWithToolTip>
 
-        <ButtonWithToolTip
-          text={tooltips.showGraph}
-          placement='top'
-          onClick={handleGraphView}
-          disabled={showGraphCheck}
-          className='mr-0.5 bg-red-600 hover:bg-red-700 text-white'
-          label='show graph'
-        >
-          {buttonCaptions.showPreviewGraph} {selectedfileslength && completedfileNo ? `(${completedfileNo})` : ''}
-        </ButtonWithToolTip>
+            <ButtonWithToolTip
+              text={tooltips.showGraph}
+              placement='top'
+              onClick={handleGraphView}
+              disabled={showGraphCheck}
+              className='mr-0.5 bg-red-600 hover:bg-red-700 text-white'
+              label='show graph'
+            >
+              {buttonCaptions.showPreviewGraph} {selectedfileslength && completedfileNo ? `(${completedfileNo})` : ''}
+            </ButtonWithToolTip>
 
             <ButtonWithToolTip
               text={tooltips.generateGraph}
@@ -746,24 +750,23 @@ const Content: React.FC<ContentProps> = ({
         selectedRows={childRef.current?.getSelectedRows()}
       />
       <JointlkViewModal
-          open={showJointlkModal}
-          inspectedName={inspectedName}   // 你要展示的文件名
-          setGraphViewOpen={setShowJointlkModal}  // Modal 关闭时会调用这个
-          viewPoint="showGraphView"
-//           nodeValues={nodesData}           // 可选：你想传入的节点数据
-//           relationshipValues={relsData}    // 可选：你想传入的关系数据
-          selectedRows={childRef.current?.getSelectedRows()}
-        />
-        <GraphConstructionViewModal
-          open={showGraphConstructionModal}
-          inspectedName={inspectedName}   // 你要展示的文件名
-          setGraphViewOpen={setShowGraphConstructionModal}  // Modal 关闭时会调用这个
-          viewPoint="showGraphView"
-//           nodeValues={nodesData}           // 可选：你想传入的节点数据
-//           relationshipValues={relsData}    // 可选：你想传入的关系数据
-          selectedRows={childRef.current?.getSelectedRows()}
-        />
-
+        open={showJointlkModal}
+        inspectedName={inspectedName} // 你要展示的文件名
+        setGraphViewOpen={setShowJointlkModal} // Modal 关闭时会调用这个
+        viewPoint='showGraphView'
+        //           nodeValues={nodesData}
+        //           relationshipValues={relsData}
+        selectedRows={childRef.current?.getSelectedRows()}
+      />
+      <GraphConstructionViewModal
+        open={showGraphConstructionModal}
+        inspectedName={inspectedName} // 你要展示的文件名
+        setGraphViewOpen={setShowGraphConstructionModal} // Modal 关闭时会调用这个
+        viewPoint='showGraphView'
+        //           nodeValues={nodesData}
+        //           relationshipValues={relsData}
+        selectedRows={childRef.current?.getSelectedRows()}
+      />
     </>
   );
 };
