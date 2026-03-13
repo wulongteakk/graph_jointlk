@@ -1,6 +1,8 @@
+from __future__ import annotations
 
 import math
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 def _safe_div(num: float, den: float) -> float:
@@ -34,10 +36,12 @@ def compute_binary_edge_metrics(
         "fp": float(fp),
         "fn": float(fn),
         "tn": float(tn),
+        "threshold": float(threshold),
     }
 
     try:
         from sklearn.metrics import average_precision_score, roc_auc_score
+
         if len(set(gold)) > 1:
             metrics["edge_auroc"] = float(roc_auc_score(gold, prob))
             metrics["edge_aupr"] = float(average_precision_score(gold, prob))
@@ -45,6 +49,34 @@ def compute_binary_edge_metrics(
         pass
 
     return metrics
+
+
+def tune_binary_threshold(
+    gold: Sequence[int],
+    prob: Sequence[float],
+    candidates: Optional[Sequence[float]] = None,
+) -> Dict[str, float]:
+    if not gold:
+        return {"best_threshold": 0.5, "best_edge_f1": 0.0}
+    if candidates is None:
+        candidates = [x / 100.0 for x in range(10, 91, 2)]
+
+    best_threshold = 0.5
+    best_metrics = compute_binary_edge_metrics(gold, prob, threshold=best_threshold)
+    best_score = best_metrics.get("edge_f1", 0.0)
+
+    for threshold in candidates:
+        metrics = compute_binary_edge_metrics(gold, prob, threshold=float(threshold))
+        score = metrics.get("edge_f1", 0.0)
+        if score > best_score:
+            best_score = score
+            best_threshold = float(threshold)
+            best_metrics = metrics
+
+    best_metrics = dict(best_metrics)
+    best_metrics["best_threshold"] = best_threshold
+    best_metrics["best_edge_f1"] = best_score
+    return best_metrics
 
 
 def compute_relation_metrics(
@@ -78,60 +110,9 @@ def compute_relation_metrics(
     return {"rel_micro_f1": micro_f1, "rel_macro_f1": macro_f1}
 
 
-def _chain_to_node_set(chain: Sequence[Tuple[str, str, str]]) -> set:
-    nodes = set()
-    for head, _, tail in chain:
-        nodes.add(head)
-        nodes.add(tail)
-    return nodes
-
-
-def _set_f1(gold_set: set, pred_set: set) -> float:
-    if not gold_set and not pred_set:
-        return 1.0
-    inter = len(gold_set & pred_set)
-    p = _safe_div(inter, len(pred_set))
-    r = _safe_div(inter, len(gold_set))
-    return _safe_div(2 * p * r, p + r)
-
-
-def compute_chain_metrics(
-    gold_chains: Sequence[Sequence[Tuple[str, str, str]]],
-    pred_chains: Sequence[Sequence[Tuple[str, str, str]]],
-) -> Dict[str, float]:
-    assert len(gold_chains) == len(pred_chains), "gold/pred chain list length mismatch"
-    n = len(gold_chains)
-    if n == 0:
-        return {
-            "chain_exact_match": 0.0,
-            "chain_edge_f1": 0.0,
-            "chain_node_f1": 0.0,
-        }
-
-    exact = 0.0
-    edge_f1 = 0.0
-    node_f1 = 0.0
-    for gold_chain, pred_chain in zip(gold_chains, pred_chains):
-        gold_edge_set = set(tuple(x) for x in gold_chain)
-        pred_edge_set = set(tuple(x) for x in pred_chain)
-        gold_node_set = _chain_to_node_set(gold_chain)
-        pred_node_set = _chain_to_node_set(pred_chain)
-        if list(gold_chain) == list(pred_chain):
-            exact += 1.0
-        edge_f1 += _set_f1(gold_edge_set, pred_edge_set)
-        node_f1 += _set_f1(gold_node_set, pred_node_set)
-
-    return {
-        "chain_exact_match": exact / n,
-        "chain_edge_f1": edge_f1 / n,
-        "chain_node_f1": node_f1 / n,
-    }
-
-
 def compute_ranking_metrics(
     ranked_gold_flags: Sequence[Sequence[int]],
 ) -> Dict[str, float]:
-    """Each row is ranked candidate list, value 1 means relevant chain."""
     mrr = 0.0
     hits1 = 0.0
     hits3 = 0.0
@@ -169,6 +150,49 @@ def compute_ranking_metrics(
         "hits@5": hits5 / n,
         "ndcg@5": ndcg5 / n,
     }
+
+
+def compute_grouped_ranking_metrics(
+    rows: Sequence[Dict[str, Any]],
+    *,
+    group_keys: Sequence[str],
+    score_field: str = "support_prob",
+    label_field: str = "gold_label",
+) -> Dict[str, float]:
+    groups: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        key = tuple(row.get(k) for k in group_keys)
+        groups[key].append(dict(row))
+
+    ranked_gold_flags: List[List[int]] = []
+    for _, group_rows in groups.items():
+        sorted_rows = sorted(group_rows, key=lambda x: float(x.get(score_field, 0.0)), reverse=True)
+        flags = [int(r.get(label_field, 0)) for r in sorted_rows]
+        if any(flags):
+            ranked_gold_flags.append(flags)
+
+    return compute_ranking_metrics(ranked_gold_flags)
+
+
+def compute_breakdown_by_field(
+    rows: Sequence[Dict[str, Any]],
+    *,
+    field: str,
+    threshold: float,
+) -> Dict[str, Dict[str, float]]:
+    buckets: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        key = str(row.get(field) or "<NONE>")
+        buckets[key].append(dict(row))
+
+    result: Dict[str, Dict[str, float]] = {}
+    for key, bucket_rows in buckets.items():
+        gold = [int(r.get("gold_label", 0)) for r in bucket_rows]
+        prob = [float(r.get("support_prob", 0.0)) for r in bucket_rows]
+        metrics = compute_binary_edge_metrics(gold, prob, threshold=threshold)
+        metrics["count"] = float(len(bucket_rows))
+        result[key] = metrics
+    return result
 
 
 def summarize_for_paper(rows: List[Dict[str, Any]]) -> Dict[str, float]:

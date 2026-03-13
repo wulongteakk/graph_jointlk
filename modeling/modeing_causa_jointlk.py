@@ -1,12 +1,20 @@
+from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import RGCNConv
-from torch_geometric.utils import softmax
 from transformers import AutoModel
+
+try:
+    from torch_geometric.nn import RGCNConv as _PyGRGCNConv  # type: ignore
+    from torch_geometric.utils import softmax as pyg_softmax  # type: ignore
+    _HAS_PYG = True
+except Exception:
+    _PyGRGCNConv = None
+    pyg_softmax = None
+    _HAS_PYG = False
 
 
 class FeedForward(nn.Module):
@@ -23,10 +31,39 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 
+class SimpleRelationalConv(nn.Module):
+    """PyG 不可用时的轻量 fallback。"""
+
+    def __init__(self, hidden_size: int, num_relations: int):
+        super().__init__()
+        self.self_proj = nn.Linear(hidden_size, hidden_size)
+        self.msg_proj = nn.Linear(hidden_size, hidden_size)
+        self.rel_emb = nn.Embedding(max(int(num_relations), 1), hidden_size)
+
+    def forward(self, node_states: torch.Tensor, edge_index: torch.Tensor, edge_type_ids: torch.Tensor) -> torch.Tensor:
+        if edge_index.numel() == 0:
+            return self.self_proj(node_states)
+
+        src = edge_index[0]
+        dst = edge_index[1]
+        rel_vec = self.rel_emb(edge_type_ids.clamp(min=0, max=self.rel_emb.num_embeddings - 1))
+        msg = self.msg_proj(node_states[src] + rel_vec)
+        agg = node_states.new_zeros(node_states.shape)
+        agg.index_add_(0, dst, msg)
+
+        deg = node_states.new_zeros((node_states.size(0), 1))
+        deg.index_add_(0, dst, torch.ones((dst.size(0), 1), device=node_states.device, dtype=node_states.dtype))
+        agg = agg / deg.clamp_min(1.0)
+        return self.self_proj(node_states) + agg
+
+
 class ResidualRGCNLayer(nn.Module):
     def __init__(self, hidden_size: int, num_relations: int, dropout: float = 0.2):
         super().__init__()
-        self.conv = RGCNConv(hidden_size, hidden_size, num_relations=max(int(num_relations), 1))
+        if _HAS_PYG and _PyGRGCNConv is not None:
+            self.conv = _PyGRGCNConv(hidden_size, hidden_size, num_relations=max(int(num_relations), 1))
+        else:
+            self.conv = SimpleRelationalConv(hidden_size, num_relations=max(int(num_relations), 1))
         self.norm = nn.LayerNorm(hidden_size)
         self.dropout = nn.Dropout(dropout)
 
@@ -43,16 +80,19 @@ class ResidualRGCNLayer(nn.Module):
         return self.norm(updated + residual)
 
 
-class CausalJointLKModel(nn.Module):
-    """JointLK-style causal edge scorer for Instance-KG.
+def segment_softmax(scores: torch.Tensor, group_ids: torch.Tensor) -> torch.Tensor:
+    if pyg_softmax is not None:
+        return pyg_softmax(scores, group_ids)
+    out = torch.zeros_like(scores)
+    unique_groups = torch.unique(group_ids)
+    for gid in unique_groups.tolist():
+        mask = group_ids == gid
+        out[mask] = torch.softmax(scores[mask], dim=0)
+    return out
 
-    关键思想：
-    1. 文本编码器处理 query + target + evidence；
-    2. 节点初始化直接来自“实例节点文本”的 token embedding，不依赖 BG-KG；
-    3. RGCN 在实例子图上做消息传递；
-    4. 文本向量以 residual 方式注入图表示；
-    5. 输出边支持分数（binary）+ 关系类型辅助分类（optional）。
-    """
+
+class CausalJointLKModel(nn.Module):
+    """JointLK-style causal edge scorer for final pseudo-label schema."""
 
     def __init__(
         self,
@@ -139,7 +179,7 @@ class CausalJointLKModel(nn.Module):
         query = self.node_query_proj(sent_vec)[graph_batch]
         key = self.node_key_proj(node_states)
         scores = (query * key).sum(dim=-1) / (float(self.hidden_size) ** 0.5)
-        attn = softmax(scores, graph_batch)
+        attn = segment_softmax(scores, graph_batch)
         graph_vec = node_states.new_zeros((sent_vec.size(0), node_states.size(-1)))
         graph_vec.index_add_(0, graph_batch, attn.unsqueeze(-1) * node_states)
         return graph_vec
@@ -212,14 +252,35 @@ class CausalJointLKModel(nn.Module):
         }
 
 
+def weighted_bce_with_logits(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    sample_weights: Optional[torch.Tensor] = None,
+    pos_weight: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    losses = F.binary_cross_entropy_with_logits(logits, labels, reduction="none", pos_weight=pos_weight)
+    if sample_weights is not None:
+        losses = losses * sample_weights
+        return losses.sum() / sample_weights.sum().clamp_min(1.0)
+    return losses.mean()
+
+
+
 def compute_training_loss(
     outputs: Dict[str, torch.Tensor],
     labels: torch.Tensor,
     relation_labels: Optional[torch.Tensor] = None,
     relation_loss_weight: float = 0.2,
+    sample_weights: Optional[torch.Tensor] = None,
+    pos_weight: Optional[torch.Tensor] = None,
 ) -> Dict[str, torch.Tensor]:
     labels = labels.float()
-    support_loss = F.binary_cross_entropy_with_logits(outputs["support_logits"], labels)
+    support_loss = weighted_bce_with_logits(
+        outputs["support_logits"],
+        labels,
+        sample_weights=sample_weights,
+        pos_weight=pos_weight,
+    )
 
     total_loss = support_loss
     relation_loss = torch.zeros_like(support_loss)
@@ -227,10 +288,16 @@ def compute_training_loss(
     if relation_labels is not None:
         positive_mask = labels > 0.5
         if positive_mask.any():
-            relation_loss = F.cross_entropy(
+            relation_losses = F.cross_entropy(
                 outputs["relation_logits"][positive_mask],
                 relation_labels[positive_mask],
+                reduction="none",
             )
+            if sample_weights is not None:
+                pos_weights = sample_weights[positive_mask]
+                relation_loss = (relation_losses * pos_weights).sum() / pos_weights.sum().clamp_min(1.0)
+            else:
+                relation_loss = relation_losses.mean()
             total_loss = total_loss + relation_loss_weight * relation_loss
 
     return {
@@ -238,3 +305,4 @@ def compute_training_loss(
         "support_loss": support_loss,
         "relation_loss": relation_loss,
     }
+

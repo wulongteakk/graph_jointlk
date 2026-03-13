@@ -1,0 +1,128 @@
+# 高精度 pseudo-label 规则配置
+# 设计原则：宁可少标，也尽量高精度；低置信样本走人工抽检。
+relation_whitelist:
+  - CAUSES
+  - LEADS_TO
+  - RESULTS_IN
+  - TRIGGERS
+  - INDUCES
+  - CONTRIBUTES_TO
+
+allowed_transitions:
+  CAUSE:
+    - INTERMEDIATE
+    - OUTCOME
+    - EVENT
+    - RISK
+  INTERMEDIATE:
+    - INTERMEDIATE
+    - OUTCOME
+    - EVENT
+    - RISK
+  CONDITION:
+    - EVENT
+    - RISK
+    - OUTCOME
+  RISK:
+    - EVENT
+    - OUTCOME
+  EVENT:
+    - OUTCOME
+    - CONSEQUENCE
+  MECHANISM:
+    - EVENT
+    - OUTCOME
+  FACTOR:
+    - EVENT
+    - OUTCOME
+    - RISK
+
+strong_triggers:
+  - 导致
+  - 从而
+  - 因此
+  - 使得
+  - 由于
+  - 引起
+  - 引发
+  - 造成
+  - 致使
+  - 促使
+  - 诱发
+  - resulted in
+  - leads to
+  - lead to
+  - caused
+  - causes
+  - because of
+  - due to
+  - giving rise to
+  - resulting in
+
+weak_triggers:
+  - 影响
+  - 关联
+  - 相关
+  - 伴随
+  - 随后
+  - then
+  - after
+  - followed by
+  - associated with
+
+negation_cues:
+  - 未
+  - 不
+  - 无
+  - 并非
+  - 否认
+  - 并未
+  - never
+  - not
+  - no evidence
+  - without
+
+uncertainty_cues:
+  - 可能
+  - 或许
+  - 疑似
+  - 尚不明确
+  - 推测
+  - suspected
+  - may
+  - might
+  - possibly
+  - uncertain
+
+max_entity_gap_chars: 120
+min_relation_prop_confidence: 0.75
+positive_min_confidence: 0.90
+negative_min_confidence: 0.88
+
+rule_weights:
+  rel_whitelist: 0.24
+  allowed_transition: 0.18
+  strong_trigger: 0.24
+  shared_evidence: 0.18
+  relation_prop_conf: 0.10
+  explicit_evidence_pointer: 0.06
+
+negative_rule_weights:
+  forbidden_transition: 0.45
+  negated_trigger: 0.30
+  uncertainty_only: 0.15
+  non_causal_relation: 0.10
+
+review:
+  sample_size: 300
+  per_doc_cap: 20
+  per_rule_cap: 40
+  stratify_by:
+    - label
+    - primary_rule
+    - relation_type
+
+evidence_retrieval:
+  lexical_top_k: 5
+  max_units_per_doc_scan: 500
+  include_chunk_fallback: true

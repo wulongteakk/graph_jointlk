@@ -1,178 +1,171 @@
+from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
-from .prior import CausalPrior
-from .schemas import CausalEdge, CausalNode
+
+STRUCTURAL_REL_TYPES = {"PART_OF", "NEXT_CHUNK", "HAS_ENTITY", "_Bloom_Perspective_"}
 
 
-class InstanceKGAccessor:
-    """Queries only Instance-KG, never BG-KG."""
+@dataclass
+class CandidateEdge:
+    doc_id: Optional[str]
+    file_name: Optional[str]
+    kg_scope: Optional[str]
+    kg_id: Optional[str]
+    source_node_id: str
+    source_text: str
+    source_layer: Optional[str]
+    source_labels: List[str]
+    source_props: Dict[str, Any]
+    target_node_id: str
+    target_text: str
+    target_layer: Optional[str]
+    target_labels: List[str]
+    target_props: Dict[str, Any]
+    relation_type: str
+    rel_props: Dict[str, Any]
+    source_chunk_id: Optional[str]
+    source_chunk_pos: Optional[int]
+    target_chunk_id: Optional[str]
+    target_chunk_pos: Optional[int]
+
+
+class Neo4jAccessor:
+    """
+    只面向 Instance-KG 的轻量访问器：
+    - 列出文档
+    - 拉取文档内实体边
+    具体 pair-centered 子图在 Python 里构造，避免对 APOC / 可变长路径做强依赖。
+    """
 
     def __init__(self, graph: Any):
         self.graph = graph
 
-    def find_seed_nodes(
+    def _run(self, query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        params = params or {}
+        if hasattr(self.graph, "query"):
+            return self.graph.query(query, params=params)
+        if hasattr(self.graph, "execute"):
+            return self.graph.execute(query, params)
+        raise TypeError("Unsupported graph client: expected LangChain Neo4jGraph-like object with .query().")
+
+    def list_documents(
         self,
-        query_text: str,
-        doc_id: Optional[str] = None,
-        kg_scope: Optional[str] = "instance",
+        *,
+        kg_scope: str = "instance",
         kg_id: Optional[str] = None,
-        limit: int = 10,
-    ) -> List[CausalNode]:
-        cypher = """
-        MATCH (n)
-        WHERE NOT n:Chunk AND NOT n:Document
-          AND ($doc_id IS NULL OR coalesce(n.doc_id, '') = $doc_id)
-          AND ($kg_scope IS NULL OR coalesce(n.kg_scope, '') = $kg_scope)
-          AND ($kg_id IS NULL OR coalesce(n.kg_id, '') = $kg_id)
-          AND (
-                toLower(coalesce(n.name, '')) CONTAINS toLower($query_text)
-             OR toLower(coalesce(n.id, '')) CONTAINS toLower($query_text)
-             OR toLower(coalesce(n.text, '')) CONTAINS toLower($query_text)
-          )
-        RETURN elementId(n) AS node_id,
-               labels(n) AS labels,
-               properties(n) AS props
-        LIMIT $limit
+        doc_ids: Optional[Sequence[str]] = None,
+        file_names: Optional[Sequence[str]] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        query = """
+        MATCH (d:Document)
+        WHERE ($kg_scope IS NULL OR coalesce(d.kg_scope, 'instance') = $kg_scope)
+          AND ($kg_id IS NULL OR d.kg_id = $kg_id)
+          AND ($doc_ids IS NULL OR coalesce(d.doc_id, d.id, d.fileName, d.file_name) IN $doc_ids)
+          AND ($file_names IS NULL OR coalesce(d.fileName, d.file_name, d.name) IN $file_names)
+        RETURN DISTINCT
+          coalesce(d.doc_id, d.id, d.fileName, d.file_name) AS doc_id,
+          coalesce(d.fileName, d.file_name, d.name) AS file_name,
+          coalesce(d.kg_scope, 'instance') AS kg_scope,
+          d.kg_id AS kg_id
+        ORDER BY file_name
         """
-        rows = self.graph.query(
-            cypher,
+        rows = self._run(
+            query,
             {
-                "query_text": query_text,
-                "doc_id": doc_id,
                 "kg_scope": kg_scope,
                 "kg_id": kg_id,
-                "limit": int(limit),
+                "doc_ids": list(doc_ids) if doc_ids else None,
+                "file_names": list(file_names) if file_names else None,
             },
         )
-        return [self._row_to_node(x) for x in rows]
+        if limit is not None:
+            rows = rows[: int(limit)]
+        return rows
 
-    def get_k_hop_subgraph(
+    def get_doc_candidate_edges(
         self,
-        seed_node_ids: Sequence[str],
-        prior: CausalPrior,
-        k_hop: int = 2,
+        *,
         doc_id: Optional[str] = None,
-        kg_scope: Optional[str] = "instance",
+        file_name: Optional[str] = None,
+        kg_scope: str = "instance",
         kg_id: Optional[str] = None,
-    ) -> Dict[str, List[Any]]:
-        if not seed_node_ids:
-            return {"nodes": [], "edges": []}
-
-        rel_types = list(prior.rel_whitelist)
-        if not rel_types:
-            return {"nodes": [], "edges": []}
-
-        cypher = """
-        MATCH (s)
-        WHERE elementId(s) IN $seed_node_ids
-        CALL apoc.path.subgraphAll(
-          s,
-          {
-            maxLevel: $k_hop,
-            relationshipFilter: $relationship_filter,
-            labelFilter: '-Chunk|-Document'
-          }
-        ) YIELD nodes, relationships
-        WITH apoc.coll.toSet(apoc.coll.flatten(collect(nodes))) AS ns,
-             apoc.coll.toSet(apoc.coll.flatten(collect(relationships))) AS rs
-        UNWIND ns AS n
-        WITH collect(DISTINCT n) AS nodes, rs
-        UNWIND rs AS r
-        WITH nodes, collect(DISTINCT r) AS relationships
-        RETURN
-          [n IN nodes
-             WHERE ($doc_id IS NULL OR coalesce(n.doc_id, '') = $doc_id)
-               AND ($kg_scope IS NULL OR coalesce(n.kg_scope, '') = $kg_scope)
-               AND ($kg_id IS NULL OR coalesce(n.kg_id, '') = $kg_id)
-           | {
-               node_id: elementId(n),
-               labels: labels(n),
-               props: properties(n)
-             }] AS nodes,
-          [r IN relationships
-             WHERE type(r) IN $rel_types
-               AND ($doc_id IS NULL OR coalesce(r.doc_id, '') = $doc_id)
-               AND ($kg_scope IS NULL OR coalesce(r.kg_scope, '') = $kg_scope)
-               AND ($kg_id IS NULL OR coalesce(r.kg_id, '') = $kg_id)
-           | {
-               edge_id: elementId(r),
-               rel_type: type(r),
-               props: properties(r),
-               source_id: elementId(startNode(r)),
-               target_id: elementId(endNode(r))
-             }] AS edges
+        relation_types: Optional[Sequence[str]] = None,
+        limit: Optional[int] = None,
+    ) -> List[CandidateEdge]:
+        relation_types = [str(x).strip().upper() for x in (relation_types or []) if str(x).strip()]
+        query = """
+        MATCH (d:Document)
+        WHERE ($kg_scope IS NULL OR coalesce(d.kg_scope, 'instance') = $kg_scope)
+          AND ($kg_id IS NULL OR d.kg_id = $kg_id)
+          AND ($doc_id IS NULL OR coalesce(d.doc_id, d.id, d.fileName, d.file_name) = $doc_id)
+          AND ($file_name IS NULL OR coalesce(d.fileName, d.file_name, d.name) = $file_name)
+        MATCH (d)<-[:PART_OF]-(c1:Chunk)-[:HAS_ENTITY]->(s)-[r]->(t)<-[:HAS_ENTITY]-(c2:Chunk)-[:PART_OF]->(d)
+        WHERE NOT type(r) IN $structural_rel_types
+          AND ($relation_types = [] OR toUpper(type(r)) IN $relation_types)
+        RETURN DISTINCT
+          coalesce(d.doc_id, d.id, d.fileName, d.file_name) AS doc_id,
+          coalesce(d.fileName, d.file_name, d.name) AS file_name,
+          coalesce(d.kg_scope, 'instance') AS kg_scope,
+          d.kg_id AS kg_id,
+          coalesce(s.node_id, s.id, s.uuid, s.name, s.text, s.value, elementId(s)) AS source_node_id,
+          coalesce(s.name, s.text, s.value, s.id, s.node_id, elementId(s)) AS source_text,
+          coalesce(s.layer, s.layer_type, s.ctp_layer, s.stage, s.role, head(labels(s))) AS source_layer,
+          labels(s) AS source_labels,
+          properties(s) AS source_props,
+          coalesce(t.node_id, t.id, t.uuid, t.name, t.text, t.value, elementId(t)) AS target_node_id,
+          coalesce(t.name, t.text, t.value, t.id, t.node_id, elementId(t)) AS target_text,
+          coalesce(t.layer, t.layer_type, t.ctp_layer, t.stage, t.role, head(labels(t))) AS target_layer,
+          labels(t) AS target_labels,
+          properties(t) AS target_props,
+          type(r) AS relation_type,
+          properties(r) AS rel_props,
+          coalesce(c1.chunk_id, c1.id, c1.uuid, elementId(c1)) AS source_chunk_id,
+          c1.position AS source_chunk_pos,
+          coalesce(c2.chunk_id, c2.id, c2.uuid, elementId(c2)) AS target_chunk_id,
+          c2.position AS target_chunk_pos
+        ORDER BY file_name, relation_type, source_text, target_text
         """
-        rows = self.graph.query(
-            cypher,
+        rows = self._run(
+            query,
             {
-                "seed_node_ids": list(seed_node_ids),
-                "k_hop": int(k_hop),
-                "relationship_filter": "|".join([f"{rel}>|<{rel}" for rel in rel_types]),
-                "rel_types": rel_types,
-                "doc_id": doc_id,
                 "kg_scope": kg_scope,
                 "kg_id": kg_id,
+                "doc_id": doc_id,
+                "file_name": file_name,
+                "relation_types": relation_types,
+                "structural_rel_types": sorted(STRUCTURAL_REL_TYPES),
             },
         )
-        if not rows:
-            return {"nodes": [], "edges": []}
-        row = rows[0]
-        nodes = [self._row_to_node(x) for x in row.get("nodes", [])]
-        node_map = {n.node_id: n for n in nodes}
-        edges = [self._row_to_edge(x, node_map) for x in row.get("edges", [])]
-        return {"nodes": nodes, "edges": edges}
+        if limit is not None:
+            rows = rows[: int(limit)]
 
-    def hydrate_edge_evidence(
-        self,
-        evidence_store: Any,
-        edges: Sequence[CausalEdge],
-    ) -> List[CausalEdge]:
-        hydrated: List[CausalEdge] = []
-        for edge in edges:
-            evidence_text = edge.evidence_text
-            unit_id = edge.evidence_unit_id or edge.meta.get("evidence_unit_id")
-            if not evidence_text and unit_id:
-                unit = evidence_store.get_unit(unit_id)
-                if unit is not None:
-                    edge.evidence_text = unit.content
-            hydrated.append(edge)
-        return hydrated
-
-    @staticmethod
-    def _row_to_node(row: Dict[str, Any]) -> CausalNode:
-        props = dict(row.get("props") or {})
-        text = props.get("name") or props.get("text") or props.get("id") or row.get("node_id")
-        layer = props.get("layer") or props.get("ctp_layer") or "UNK"
-        return CausalNode(
-            node_id=row.get("node_id"),
-            text=text,
-            layer=str(layer).upper(),
-            doc_id=props.get("doc_id"),
-            kg_scope=props.get("kg_scope"),
-            kg_id=props.get("kg_id"),
-            labels=list(row.get("labels") or []),
-            properties=props,
-        )
-
-    @staticmethod
-    def _row_to_edge(row: Dict[str, Any], node_map: Dict[str, CausalNode]) -> CausalEdge:
-        props = dict(row.get("props") or {})
-        source = node_map.get(row.get("source_id"))
-        target = node_map.get(row.get("target_id"))
-        return CausalEdge(
-            edge_id=row.get("edge_id"),
-            source_id=row.get("source_id"),
-            target_id=row.get("target_id"),
-            relation=str(row.get("rel_type") or "UNK").upper(),
-            source_text=source.text if source else row.get("source_id"),
-            target_text=target.text if target else row.get("target_id"),
-            source_layer=source.layer if source else "UNK",
-            target_layer=target.layer if target else "UNK",
-            evidence_unit_id=props.get("evidence_unit_id"),
-            evidence_text=props.get("evidence_text"),
-            doc_id=props.get("doc_id"),
-            kg_scope=props.get("kg_scope"),
-            kg_id=props.get("kg_id"),
-            meta=props,
-        )
+        out: List[CandidateEdge] = []
+        for row in rows:
+            out.append(
+                CandidateEdge(
+                    doc_id=row.get("doc_id"),
+                    file_name=row.get("file_name"),
+                    kg_scope=row.get("kg_scope"),
+                    kg_id=row.get("kg_id"),
+                    source_node_id=str(row.get("source_node_id")),
+                    source_text=str(row.get("source_text") or row.get("source_node_id") or ""),
+                    source_layer=row.get("source_layer"),
+                    source_labels=list(row.get("source_labels") or []),
+                    source_props=dict(row.get("source_props") or {}),
+                    target_node_id=str(row.get("target_node_id")),
+                    target_text=str(row.get("target_text") or row.get("target_node_id") or ""),
+                    target_layer=row.get("target_layer"),
+                    target_labels=list(row.get("target_labels") or []),
+                    target_props=dict(row.get("target_props") or {}),
+                    relation_type=str(row.get("relation_type") or ""),
+                    rel_props=dict(row.get("rel_props") or {}),
+                    source_chunk_id=row.get("source_chunk_id"),
+                    source_chunk_pos=row.get("source_chunk_pos"),
+                    target_chunk_id=row.get("target_chunk_id"),
+                    target_chunk_pos=row.get("target_chunk_pos"),
+                )
+            )
+        return out

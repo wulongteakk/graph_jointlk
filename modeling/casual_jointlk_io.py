@@ -1,11 +1,49 @@
+from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import torch
+from transformers import PreTrainedTokenizerBase
+
+
+DEFAULT_NODE_TYPE_TO_ID = {
+    "UNK": 0,
+    "ROOT": 1,
+    "CAUSE": 2,
+    "FACTOR": 3,
+    "CONDITION": 4,
+    "ACTION": 5,
+    "MECHANISM": 6,
+    "INTERMEDIATE": 7,
+    "STATE": 8,
+    "EVENT": 9,
+    "OUTCOME": 10,
+    "RISK": 11,
+    "CONSEQUENCE": 12,
+}
+
+
+def load_prior_config(config_path: str) -> Dict[str, Any]:
+    path = Path(config_path)
+    if not path.exists():
+        raise FileNotFoundError(f"prior config not found: {config_path}")
+
+    if path.suffix.lower() == ".json":
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    try:
+        import yaml
+    except ImportError as exc:
+        raise ImportError("PyYAML is required to read YAML prior config.") from exc
 
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def build_relation_to_id(prior_config: Dict[str, Any]) -> Dict[str, int]:
     whitelist = prior_config.get("relations", {}).get("whitelist", [])
-    rels = ["UNK"] + list(whitelist)
+    rels = ["UNK"] + [str(x).upper() for x in whitelist]
     return {rel: idx for idx, rel in enumerate(rels)}
 
 
@@ -13,11 +51,13 @@ def build_node_type_to_id(prior_config: Dict[str, Any]) -> Dict[str, int]:
     ctp = prior_config.get("ctp_allowed_transitions", {})
     node_type_to_id = dict(DEFAULT_NODE_TYPE_TO_ID)
     for key in ctp:
-        if key not in node_type_to_id:
-            node_type_to_id[key] = len(node_type_to_id)
+        key_u = str(key).upper()
+        if key_u not in node_type_to_id:
+            node_type_to_id[key_u] = len(node_type_to_id)
         for value in ctp[key]:
-            if value not in node_type_to_id:
-                node_type_to_id[value] = len(node_type_to_id)
+            value_u = str(value).upper()
+            if value_u not in node_type_to_id:
+                node_type_to_id[value_u] = len(node_type_to_id)
     return node_type_to_id
 
 
@@ -41,8 +81,8 @@ def build_example_text(
     target_text = normalize_text(target_text)
     doc_title = normalize_text(doc_title)
 
-    evidence_texts = [normalize_text(x) for x in evidence_texts if normalize_text(x)]
-    evidence_texts = evidence_texts[:max_evidence]
+    cleaned_evidence = [normalize_text(x) for x in evidence_texts if normalize_text(x)]
+    cleaned_evidence = cleaned_evidence[:max_evidence]
 
     parts: List[str] = []
     if doc_title:
@@ -52,19 +92,9 @@ def build_example_text(
     parts.append(f"[SOURCE] {source_text}")
     parts.append(f"[RELATION] {relation_text}")
     parts.append(f"[TARGET] {target_text}")
-    if evidence_texts:
-        parts.append("[EVIDENCE] " + " [SEP] ".join(evidence_texts))
+    if cleaned_evidence:
+        parts.append("[EVIDENCE] " + " [SEP] ".join(cleaned_evidence))
     return " ".join(parts)
-
-
-def _mean_pool_embeddings(
-    emb: torch.Tensor,
-    mask: torch.Tensor,
-) -> torch.Tensor:
-    mask = mask.unsqueeze(-1).float()
-    summed = (emb * mask).sum(dim=1)
-    denom = mask.sum(dim=1).clamp_min(1.0)
-    return summed / denom
 
 
 def _ensure_non_empty_edges(
@@ -73,13 +103,51 @@ def _ensure_non_empty_edges(
     edge_type_ids: Optional[List[int]] = None,
 ) -> Tuple[List[List[int]], List[int]]:
     edge_type_ids = list(edge_type_ids or [])
-    if edge_index and len(edge_index[0]) > 0:
+    if edge_index and len(edge_index) == 2 and len(edge_index[0]) > 0:
+        if len(edge_type_ids) < len(edge_index[0]):
+            edge_type_ids.extend([0] * (len(edge_index[0]) - len(edge_type_ids)))
         return edge_index, edge_type_ids
 
     srcs = list(range(num_nodes))
     dsts = list(range(num_nodes))
     rels = [0 for _ in range(num_nodes)]
     return [srcs, dsts], rels
+
+
+def normalize_edge_index(edge_index: Any) -> List[List[int]]:
+    """
+    支持三种输入：
+    1) [[0,1,2],[1,2,3]]
+    2) [[0,1],[1,2],[2,3]]
+    3) {"src": [...], "dst": [...]} / {"rows": [...], "cols": [...]}
+    """
+    if edge_index is None:
+        return [[], []]
+
+    if isinstance(edge_index, dict):
+        src = edge_index.get("src") or edge_index.get("rows") or []
+        dst = edge_index.get("dst") or edge_index.get("cols") or []
+        return [[int(x) for x in src], [int(x) for x in dst]]
+
+    if not isinstance(edge_index, list):
+        return [[], []]
+
+    if len(edge_index) == 2 and all(isinstance(part, list) for part in edge_index):
+        # Already COO-like: [[srcs], [dsts]]
+        if all(not part or isinstance(part[0], int) for part in edge_index):
+            return [
+                [int(x) for x in edge_index[0]],
+                [int(x) for x in edge_index[1]],
+            ]
+
+    # Pair list: [[src, dst], ...]
+    srcs: List[int] = []
+    dsts: List[int] = []
+    for item in edge_index:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            srcs.append(int(item[0]))
+            dsts.append(int(item[1]))
+    return [srcs, dsts]
 
 
 def batchify_examples(
@@ -95,7 +163,7 @@ def batchify_examples(
         raise ValueError("examples must not be empty")
 
     text_inputs = tokenizer(
-        [ex["text"] for ex in examples],
+        [str(ex["text"]) for ex in examples],
         padding=True,
         truncation=True,
         max_length=max_text_length,
@@ -115,6 +183,8 @@ def batchify_examples(
     edge_src: List[int] = []
     edge_dst: List[int] = []
     edge_types: List[int] = []
+    sample_weights: List[float] = []
+    meta_rows: List[Dict[str, Any]] = []
 
     node_offset = 0
     for graph_idx, ex in enumerate(examples):
@@ -135,7 +205,17 @@ def batchify_examples(
         local_source_idx = int(ex.get("source_idx", 0))
         local_target_idx = int(ex.get("target_idx", min(1, local_num_nodes - 1)))
 
-        flat_node_texts.extend([normalize_text(x) or "<EMPTY>" for x in node_texts])
+        # Fallback: infer indices from node_ids and source/target node ids.
+        node_ids = list(ex.get("node_ids") or [])
+        if node_ids:
+            source_node_id = ex.get("source_node_id")
+            target_node_id = ex.get("target_node_id")
+            if source_node_id in node_ids:
+                local_source_idx = int(node_ids.index(source_node_id))
+            if target_node_id in node_ids:
+                local_target_idx = int(node_ids.index(target_node_id))
+
+        flat_node_texts.extend([normalize_text(str(x)) or "<EMPTY>" for x in node_texts])
         flat_node_type_ids.extend([node_type_to_id.get(str(x).upper(), 0) for x in node_layers])
         flat_node_scores.extend([float(x) for x in node_scores])
         flat_graph_batch.extend([graph_idx] * local_num_nodes)
@@ -144,12 +224,14 @@ def batchify_examples(
         global_target_indices.append(node_offset + local_target_idx)
 
         rel_name = str(ex.get("candidate_relation") or ex.get("relation_text") or "UNK").upper()
+        gold_rel_name = str(ex.get("gold_relation") or rel_name).upper()
         relation_ids.append(relation_to_id.get(rel_name, 0))
-        relation_labels.append(relation_to_id.get(str(ex.get("gold_relation") or rel_name).upper(), 0))
+        relation_labels.append(relation_to_id.get(gold_rel_name, 0))
         labels.append(float(ex.get("label", 0.0)))
         sample_ids.append(str(ex.get("sample_id") or f"sample-{graph_idx}"))
+        sample_weights.append(float(ex.get("sample_weight", 1.0)))
 
-        ex_edge_index = ex.get("edge_index") or [[], []]
+        ex_edge_index = normalize_edge_index(ex.get("edge_index"))
         ex_edge_type = ex.get("edge_types") or ex.get("edge_type_labels") or []
         ex_edge_type_ids = [relation_to_id.get(str(rel).upper(), 0) for rel in ex_edge_type]
         ex_edge_index, ex_edge_type_ids = _ensure_non_empty_edges(ex_edge_index, local_num_nodes, ex_edge_type_ids)
@@ -157,6 +239,26 @@ def batchify_examples(
             edge_src.append(node_offset + int(src))
             edge_dst.append(node_offset + int(dst))
             edge_types.append(int(rel_id))
+
+        meta_rows.append(
+            {
+                "sample_id": sample_ids[-1],
+                "doc_id": ex.get("doc_id"),
+                "file_name": ex.get("file_name") or ex.get("doc_title"),
+                "doc_title": ex.get("doc_title") or ex.get("file_name"),
+                "label_source": ex.get("label_source"),
+                "review_status": ex.get("review_status"),
+                "candidate_relation": rel_name,
+                "gold_relation": gold_rel_name,
+                "source_node_id": ex.get("source_node_id"),
+                "source_text": ex.get("source_text"),
+                "target_node_id": ex.get("target_node_id"),
+                "target_text": ex.get("target_text"),
+                "pseudo_label_id": ex.get("pseudo_label_id"),
+                "label_confidence": ex.get("label_confidence"),
+                "gold_label": int(ex.get("label", 0)),
+            }
+        )
 
         node_offset += local_num_nodes
 
@@ -168,7 +270,7 @@ def batchify_examples(
         return_tensors="pt",
     )
 
-    batch = {
+    batch: Dict[str, Any] = {
         "input_ids": text_inputs["input_ids"],
         "attention_mask": text_inputs["attention_mask"],
         "node_input_ids": node_inputs["input_ids"],
@@ -183,6 +285,9 @@ def batchify_examples(
         "relation_ids": torch.tensor(relation_ids, dtype=torch.long),
         "labels": torch.tensor(labels, dtype=torch.float),
         "relation_labels": torch.tensor(relation_labels, dtype=torch.long),
+        "sample_weights": torch.tensor(sample_weights, dtype=torch.float),
+        "sample_ids": sample_ids,
+        "meta_rows": meta_rows,
     }
 
     if "token_type_ids" in text_inputs:
@@ -195,7 +300,6 @@ def batchify_examples(
             if torch.is_tensor(value):
                 batch[key] = value.to(device)
 
-    batch["sample_ids"] = sample_ids
     return batch
 
 
