@@ -16,6 +16,7 @@ from src.document_sources.youtube import *
 from src.shared.common_fn import *
 from src.make_relationships import *
 from src.document_sources.web_pages import *
+from causal_jointlk.pseudo_pipeline import run_pseudo_label_pipeline_for_doc, AutoPseudoPipelineConfig
 # from src.graph_export import generate_gpickle_export,export_jointlk_json_artifacts
 
 import re
@@ -31,6 +32,107 @@ warnings.filterwarnings("ignore")
 load_dotenv()
 logging.basicConfig(format='%(asctime)s - %(message)s', level='INFO')
 
+
+
+def _get_bool_env(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _get_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return int(raw)
+
+
+def _truncate_console_text(text, max_len: int = 28) -> str:
+    value = str(text or "")
+    if len(value) <= max_len:
+        return value
+    return value[: max_len - 3] + "..."
+
+
+def _build_pseudo_console_hook(show_edge_process: bool):
+    def _hook(event):
+        stage = event.get("stage")
+        if stage == "edge_decision" and show_edge_process:
+            logging.info(
+                "[pseudo-label][edge %s/%s] %s --%s--> %s | label=%s | conf=%.3f | rule=%s",
+                event.get("edge_index"),
+                event.get("num_candidate_edges"),
+                _truncate_console_text(event.get("source_text")),
+                event.get("relation_type") or "?",
+                _truncate_console_text(event.get("target_text")),
+                event.get("label"),
+                float(event.get("confidence") or 0.0),
+                event.get("primary_rule") or "-",
+            )
+            return
+        if stage == "doc_summary":
+            breakdown = event.get("label_breakdown") or {}
+            logging.info(
+                "[pseudo-label][summary] doc_id=%s file=%s | candidates=%s pseudo=%s (pos=%s, neg=%s) ambiguous=%s",
+                event.get("doc_id"),
+                event.get("file_name"),
+                event.get("num_candidate_edges"),
+                event.get("num_pseudo_labels"),
+                breakdown.get("positive", 0),
+                breakdown.get("negative", 0),
+                event.get("ambiguous_edges", 0),
+            )
+
+    return _hook
+
+
+def maybe_run_auto_pseudo_label_pipeline(graph, *, file_name: str, doc_id: str, kg_scope: str, kg_id: str):
+    cfg = AutoPseudoPipelineConfig.from_env()
+    if not cfg.enabled:
+        logging.info("[pseudo-label] skipped because AUTO_PSEUDO_LABEL_AFTER_UPLOAD is disabled")
+        return None
+
+    console_preview = _get_int_env("AUTO_PSEUDO_LABEL_CONSOLE_PREVIEW", 10)
+    show_edge_process = _get_bool_env("AUTO_PSEUDO_LABEL_SHOW_EDGE_PROCESS", True)
+    progress_hook = _build_pseudo_console_hook(show_edge_process)
+
+    logging.info(
+        "[pseudo-label] start for file=%s doc_id=%s | show_edge_process=%s console_preview=%s",
+        file_name,
+        doc_id,
+        show_edge_process,
+        console_preview,
+    )
+    result = run_pseudo_label_pipeline_for_doc(
+        graph=graph,
+        file_name=file_name,
+        doc_id=doc_id,
+        kg_scope=kg_scope,
+        kg_id=kg_id,
+        config=cfg,
+        progress_hook=progress_hook,
+        console_preview_limit=console_preview,
+    )
+
+    preview_rows = result.get("preview") or []
+    if preview_rows:
+        logging.info("[pseudo-label][preview] top %s rows for file=%s", len(preview_rows), file_name)
+        for idx, row in enumerate(preview_rows, start=1):
+            logging.info(
+                "[pseudo-label][preview #%s] %s --%s--> %s | label=%s | conf=%.3f | rule=%s",
+                idx,
+                _truncate_console_text(row.get("source_text")),
+                row.get("relation_type") or "?",
+                _truncate_console_text(row.get("target_text")),
+                row.get("label"),
+                float(row.get("confidence") or 0.0),
+                (row.get("rule_hits") or {}).get("primary_rule") or "-",
+            )
+    else:
+        logging.info("[pseudo-label][preview] no pseudo-label generated for file=%s", file_name)
+
+    return result
 
 def create_source_node_graph_url_s3(graph, model, source_url, aws_access_key_id, aws_secret_access_key, source_type):
     lst_file_name = []
@@ -387,6 +489,7 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
         logging.info(f'Job Status at the end : {job_status}')
         end_time = datetime.now()
         processed_time = end_time - start_time
+        pseudo_result = None
         obj_source_node = sourceNode()
         obj_source_node.file_name = file_name
         obj_source_node.doc_id = ctx.doc_id
@@ -414,6 +517,24 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
             except Exception as e:
                 logging.error(f"Failed to export gpickle graph: {e}")
 
+            try:
+                pseudo_result = maybe_run_auto_pseudo_label_pipeline(
+                    graph,
+                    file_name=file_name,
+                    doc_id=ctx.doc_id,
+                    kg_scope=ctx.kg_scope,
+                    kg_id=ctx.kg_id,
+                )
+            except Exception as e:
+                pseudo_result = {
+                    "ok": False,
+                    "error": str(e),
+                }
+                logging.exception(f"[pseudo-label] failed for file={file_name}: {e}")
+
+                # merged_file_path have value only when file uploaded from local
+
+
         # merged_file_path have value only when file uploaded from local
 
         if is_uploaded_from_local:
@@ -431,7 +552,8 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
             "processingTime": round(processed_time.total_seconds(), 2),
             "status": job_status,
             "model": model,
-            "success_count": 1
+            "success_count": 1,
+            "pseudo_label_summary": pseudo_result if job_status == "Completed" else None,
         }
     else:
         logging.info('File does not process because it\'s already in Processing status')

@@ -46,7 +46,50 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--review_sample_size", type=int, default=300)
     parser.add_argument("--review_per_doc_cap", type=int, default=20)
     parser.add_argument("--review_per_rule_cap", type=int, default=40)
+    parser.add_argument("--console_preview", type=int, default=5, help="每个文档在控制台展示前N条pseudo-label结果")
+    parser.add_argument("--show_edge_process", action="store_true", help="在控制台展示每条候选边的打标过程")
     return parser.parse_args()
+
+
+def _truncate(text: Optional[str], max_len: int = 28) -> str:
+    s = str(text or "")
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3] + "..."
+
+
+def make_console_progress_hook(show_edge_process: bool):
+    def _hook(event: dict) -> None:
+        stage = event.get("stage")
+        if stage == "edge_decision" and show_edge_process:
+            print(
+                "[edge {idx}/{total}] {src} --{rel}--> {tgt} | label={label} | conf={conf:.3f} | rule={rule}".format(
+                    idx=event.get("edge_index"),
+                    total=event.get("num_candidate_edges"),
+                    src=_truncate(event.get("source_text")),
+                    rel=event.get("relation_type") or "?",
+                    tgt=_truncate(event.get("target_text")),
+                    label=event.get("label"),
+                    conf=float(event.get("confidence") or 0.0),
+                    rule=event.get("primary_rule") or "-",
+                )
+            )
+            return
+        if stage == "doc_summary":
+            bd = event.get("label_breakdown") or {}
+            print(
+                "[doc-summary] doc_id={doc} file={file} | candidates={cand} pseudo={pseudo} (pos={pos}, neg={neg}) ambiguous={amb}".format(
+                    doc=event.get("doc_id"),
+                    file=event.get("file_name"),
+                    cand=event.get("num_candidate_edges"),
+                    pseudo=event.get("num_pseudo_labels"),
+                    pos=bd.get("positive", 0),
+                    neg=bd.get("negative", 0),
+                    amb=event.get("ambiguous_edges", 0),
+                )
+            )
+
+    return _hook
 
 
 def main() -> None:
@@ -85,10 +128,12 @@ def main() -> None:
     )
 
     summaries = []
+    progress_hook = make_console_progress_hook(args.show_edge_process)
     for doc in docs:
         file_name = doc.get("file_name")
         if not file_name:
             continue
+        print(f"\n>>> Processing doc: doc_id={doc.get('doc_id')} file_name={file_name}")
         result = run_pseudo_label_pipeline_for_doc(
             graph=graph,
             file_name=file_name,
@@ -96,7 +141,28 @@ def main() -> None:
             kg_scope=doc.get("kg_scope") or args.kg_scope,
             kg_id=doc.get("kg_id") or args.kg_id,
             config=cfg,
+            progress_hook=progress_hook,
+            console_preview_limit=args.console_preview,
         )
+        if args.console_preview > 0:
+            preview_rows = result.get("preview") or []
+            if preview_rows:
+                print(f"[preview] top {len(preview_rows)} pseudo-labels:")
+                for i, row in enumerate(preview_rows, start=1):
+                    print(
+                        "  #{idx}: {src} --{rel}--> {tgt} | label={label} | conf={conf:.3f} | rule={rule}".format(
+                            idx=i,
+                            src=_truncate(row.get("source_text")),
+                            rel=row.get("relation_type") or "?",
+                            tgt=_truncate(row.get("target_text")),
+                            label=row.get("label"),
+                            conf=float(row.get("confidence") or 0.0),
+                            rule=(row.get("rule_hits") or {}).get("primary_rule") or "-",
+                        )
+                    )
+            else:
+                print("[preview] no pseudo-label generated for this doc.")
+
         summaries.append(result)
 
     manifest = {

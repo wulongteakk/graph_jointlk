@@ -7,7 +7,7 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .neo4j_accessor import CandidateEdge, Neo4jAccessor
 from .pseudo_labeler import (
@@ -501,6 +501,8 @@ def run_pseudo_label_pipeline_for_doc(
     kg_scope: Optional[str],
     kg_id: Optional[str],
     config: Optional[AutoPseudoPipelineConfig] = None,
+    progress_hook: Optional[Callable[[Dict[str, Any]], None]] = None,
+    console_preview_limit: int = 0,
 ) -> Dict[str, Any]:
     cfg = config or AutoPseudoPipelineConfig.from_env()
     if not cfg.enabled:
@@ -531,7 +533,7 @@ def run_pseudo_label_pipeline_for_doc(
 
     label_rows: List[Dict[str, Any]] = []
     ambiguous = 0
-    for edge in doc_edges:
+    for edge_idx, edge in enumerate(doc_edges, start=1):
         evidence_units = gather_evidence_units_for_edge(
             store=store,
             edge=edge,
@@ -565,11 +567,44 @@ def run_pseudo_label_pipeline_for_doc(
 
         if decision.label is None:
             ambiguous += 1
+            if progress_hook is not None:
+                progress_hook(
+                    {
+                        "stage": "edge_decision",
+                        "doc_id": doc_id,
+                        "file_name": file_name,
+                        "edge_index": edge_idx,
+                        "num_candidate_edges": len(doc_edges),
+                        "source_text": edge.source_text,
+                        "relation_type": edge.relation_type,
+                        "target_text": edge.target_text,
+                        "label": None,
+                        "confidence": float(decision.confidence),
+                        "primary_rule": decision.primary_rule,
+                    }
+                )
             if not cfg.store_ambiguous:
                 continue
 
         if decision.label is not None:
-            label_rows.append(build_pseudo_label_record(edge, decision))
+            row = build_pseudo_label_record(edge, decision)
+            label_rows.append(row)
+            if progress_hook is not None:
+                progress_hook(
+                    {
+                        "stage": "edge_decision",
+                        "doc_id": doc_id,
+                        "file_name": file_name,
+                        "edge_index": edge_idx,
+                        "num_candidate_edges": len(doc_edges),
+                        "source_text": edge.source_text,
+                        "relation_type": row.get("relation_type"),
+                        "target_text": edge.target_text,
+                        "label": int(row.get("label") or 0),
+                        "confidence": float(row.get("confidence") or 0.0),
+                        "primary_rule": (row.get("rule_hits") or {}).get("primary_rule"),
+                    }
+                )
 
     if label_rows:
         store.upsert_pseudo_edge_labels(label_rows)
@@ -593,4 +628,17 @@ def run_pseudo_label_pipeline_for_doc(
             },
         },
     )
-    return {"ok": True, "export_dir": str(out_dir), **manifest}
+    preview = label_rows[: max(0, int(console_preview_limit or 0))]
+    return {"ok": True, "export_dir": str(out_dir), **manifest,"preview":preview}
+    if progress_hook is not None:
+        progress_hook(
+            {
+                "stage": "doc_summary",
+                "doc_id": doc_id,
+                "file_name": file_name,
+                "num_candidate_edges": len(doc_edges),
+                "num_pseudo_labels":len(label_rows),
+                "ambiguous_edges": ambiguous,
+                "label_breakdown": manifest.get("label_breakdown",{}),
+            }
+        )
