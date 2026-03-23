@@ -16,6 +16,7 @@ from src.document_sources.youtube import *
 from src.shared.common_fn import *
 from src.make_relationships import *
 from src.document_sources.web_pages import *
+from src.kg_content import build_kg_context, scope_graph_documents
 from causal_jointlk.pseudo_pipeline import run_pseudo_label_pipeline_for_doc, AutoPseudoPipelineConfig
 # from src.graph_export import generate_gpickle_export,export_jointlk_json_artifacts
 

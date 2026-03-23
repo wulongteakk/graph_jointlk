@@ -8,8 +8,8 @@ class sourceNode:
     For BG-KG / Instance-KG separation we introduce:
 
     - doc_id:   scoped document id (recommended MERGE key)
-    - kg_scope: 'bg' or 'inst'
-    - kg_id:    dataset/project id inside the scope
+    - kg_scope: canonical default is 'instance'
+    - kg_id:    canonical default is 'default'
 
     These fields are optional so legacy flows keep working.
     """

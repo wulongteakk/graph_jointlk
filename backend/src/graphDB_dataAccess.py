@@ -293,7 +293,21 @@ class graphDBdataAccess:
         sorting the list by the last updated date.
         """
         logging.info("Get existing files list from graph")
-        query = "MATCH(d:Document) WHERE d.fileName IS NOT NULL RETURN d ORDER BY d.updatedAt DESC"
+        query = """
+        MATCH (d:Document)
+        WHERE d.fileName IS NOT NULL
+        WITH d.fileName AS file_name, collect(d) AS docs
+        WITH file_name,
+             reduce(best = head(docs), item IN tail(docs) |
+                 CASE
+                     WHEN coalesce(item.updatedAt, item.createdAt) >= coalesce(best.updatedAt, best.createdAt)
+                     THEN item
+                     ELSE best
+                 END
+             ) AS d
+        RETURN d
+        ORDER BY d.updatedAt DESC, d.createdAt DESC
+        """
         result = self.graph.query(query)
         list_of_json_objects = [entry['d'] for entry in result]
         return list_of_json_objects
@@ -335,9 +349,13 @@ class graphDBdataAccess:
 
     def get_current_status_document_node(self, file_name):
         query = """
-                MATCH(d:Document {fileName : $file_name}) RETURN d.status AS Status , d.processingTime AS processingTime, 
+                MATCH(d:Document {fileName : $file_name})
+                WITH d
+                ORDER BY coalesce(d.updatedAt, d.createdAt) DESC
+                LIMIT 1
+                RETURN d.status AS Status , d.processingTime AS processingTime,
                 d.nodeCount AS nodeCount, d.model as model, d.relationshipCount as relationshipCount,
-                d.total_pages AS total_pages, d.total_chunks AS total_chunks , d.fileSize as fileSize, 
+                d.total_pages AS total_pages, d.total_chunks AS total_chunks , d.fileSize as fileSize,
                 d.is_cancelled as is_cancelled, d.processed_chunk as processed_chunk, d.fileSource as fileSource
                 """
         param = {"file_name" : file_name}

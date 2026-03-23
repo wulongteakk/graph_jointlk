@@ -52,15 +52,9 @@ class KGContext:
         return f"{self.kg_scope}|{self.kg_id}|{self.file_name_clean}"
 
     def entity_uid(self, local_id: str) -> str:
-        """Return the Neo4j MERGE key used by entity nodes.
-
-        - Instance KG: doc-scoped (avoid cross-report merge)
-        - BG KG: scope+kg_id-scoped (allow merge across BG documents)
-        """
+        """Return the Neo4j MERGE key used by entity nodes."""
         local = _clean_part(local_id)
-        if self.kg_scope == "inst":
-            return f"{self.doc_id}|{local}"
-        return f"{self.kg_scope}|{self.kg_id}|{local}"
+        return f"{self.doc_id}|{local}"
 
     def chunk_uid(self, chunk_hash: str) -> str:
         return f"{self.doc_id}|{_clean_part(chunk_hash)}"
@@ -70,11 +64,14 @@ def build_kg_context(
     kg_scope: Optional[str],
     kg_id: Optional[str],
     file_name: str,
-    default_scope: str = "inst",
+    default_scope: str = "shared",
     default_kg_id: str = "default",
 ) -> KGContext:
-    scope = (kg_scope or default_scope).strip().lower()
-    kid = (kg_id or default_kg_id).strip()
+    # Minimal-change compatibility:
+    # callers may still send kg_scope/kg_id from older BG-KG vs Instance-KG UI/API
+    # flows, but the backend now treats everything as one shared KG.
+    scope = default_scope
+    kid = default_kg_id
     return KGContext(kg_scope=scope, kg_id=kid, file_name=file_name)
 
 

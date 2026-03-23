@@ -20,6 +20,14 @@ QUERY_MAP = {
 DOC_CHUNK_ENTITIES_QUERY = """
     MATCH (d:Document)
     WHERE d.fileName IN $document_names
+    WITH d.fileName AS file_name, collect(d) AS docs
+    WITH reduce(best = head(docs), item IN tail(docs) |
+        CASE
+            WHEN coalesce(item.updatedAt, item.createdAt) >= coalesce(best.updatedAt, best.createdAt)
+            THEN item
+            ELSE best
+        END
+    ) AS d
     OPTIONAL MATCH (d)<-[part_of:PART_OF]-(c:Chunk)
     OPTIONAL MATCH (c)-[sim:SIMILAR]-(sim_chunk:Chunk)
     OPTIONAL MATCH (c)-[has:HAS_ENTITY]->(e)
@@ -53,13 +61,17 @@ QUERY_WITH_DOCUMENT = """
     RETURN nodes, rels
 """
 
-QUERY_WITHOUT_DOCUMENT = """
+QUERY_WITH_DOCUMENT = """
     MATCH docs = (d:Document) 
-    WITH docs, d ORDER BY d.createdAt DESC 
-    LIMIT $doc_limit
+    WHERE d.fileName IN $document_names
+    WITH docs, d
+    ORDER BY coalesce(d.updatedAt, d.createdAt) DESC
+    WITH d.fileName AS file_name, collect({docs: docs, d: d}) AS rows
+    WITH rows[0] AS row
+    WITH row.docs AS docs, row.d AS d
     CALL {{ WITH d
-        OPTIONAL MATCH chunks=(d)<-[:PART_OF]-(c:Chunk)
-        RETURN chunks, c LIMIT 50
+      OPTIONAL MATCH chunks=(d)<-[:PART_OF]-(c:Chunk)
+      RETURN chunks, c LIMIT 50
     }}
     WITH [] {query_to_change} AS paths
     CALL {{ WITH paths UNWIND paths AS path UNWIND nodes(path) as node RETURN collect(distinct node) as nodes }}
