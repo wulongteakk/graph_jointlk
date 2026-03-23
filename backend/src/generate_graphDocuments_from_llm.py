@@ -1,275 +1,171 @@
-import json
 import logging
-import re
-from typing import List, Dict, Any, Optional, Tuple
-from langchain_community.graphs import Neo4jGraph
+from typing import List, Tuple,Optional,Dict,Any
 
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_community.graphs import Neo4jGraph
 from langchain_community.graphs.graph_document import GraphDocument
 
 from src.diffbot_transformer import get_graph_from_diffbot
-from src.openAI_llm import get_graph_from_OpenAI # 替换
-from src.gemini_llm import get_graph_from_Gemini # 替换
-from src.shared.constants import *
-# from src.llm import get_graph_from_llm as old_get_graph_from_llm
-from src.llm import get_graph_from_llm, get_llm
-
+from src.domain_packs.registry import get_domain_pack
+from src.gemini_llm import get_graph_from_Gemini
+from src.llm import get_graph_from_llm
+from src.openAI_llm import get_graph_from_OpenAI
+from src.overlay.hfsca_overlay import apply_hfsca_overlay
+from src.shared.constants import GEMINI_MODELS, OPENAI_MODELS
 
 logging.basicConfig(format="%(asctime)s - %(message)s", level="INFO")
 
 
-
-
-
-def _strip_json_fence(content: str) -> str:
-    if "```json" in content:
-        return content.split("```json")[1].split("```")[0]
-    if "```" in content:
-        return content.replace("```", "").strip()
-    return content
-
-
-def _parse_classification_payload(raw_content: str) -> Optional[Any]:
-    """兼容 LLM 返回的 ```json / 前后夹带解释文本 / 单对象或对象数组。"""
-    content = _strip_json_fence(raw_content).strip()
-    if not content:
-        return None
-
-    try:
-        return json.loads(content)
-    except Exception:
-        pass
-
-    match = re.search(r"(\{.*\}|\[.*\])", content, flags=re.S)
-    if not match:
-        return None
-
-    try:
-        return json.loads(match.group(1))
-    except Exception:
-        return None
-
-
-def classify_risk_factor_hfcsa_with_llm(
-    risk_factor: str,
-    context: str,
-    model: str,
-) -> Optional[Dict[str, Any]]:
-    try:
-        llm, _ = get_llm(model)
-        prompt = ChatPromptTemplate.from_template(
-            HFCSA_CONTROLLED_CLASSIFICATION_PROMPT_TEMPLATE
-            + "\n\n待分类 RiskFactor: \"{risk_factor}\"\n\n原文片段:\n{context}\n"
-        )
-        chain = prompt | llm
-        response = chain.invoke({"risk_factor": risk_factor, "context": context})
-        data = _parse_classification_payload(response.content)
-        if data is None:
-            raise ValueError(f"无法从返回中解析 JSON: {response.content[:200]}")
-    except Exception as e:
-        logging.warning(f"LLM 受控分类失败，RiskFactor: {risk_factor}, 错误: {e}")
-        return None
-
-    if isinstance(data, dict):
-        data = [data]
-    if not data:
-        return None
-
-    result = data[0]
-    return {
-        "layer_code": result.get("layer_code"),
-        "category_code": result.get("category_code"),
-        "confidence": result.get("confidence"),
-        "reason": result.get("reason"),
-        "evidence": result.get("evidence"),
-    }
-
-
-def _is_risk_factor_node(node: Any) -> bool:
-    """扩大候选匹配范围，避免受控分类覆盖为 0。"""
-    node_type = (node.type or "").strip()
-    node_type_lower = node_type.lower()
-    risk_types = {
-        "riskfactor", "风险因子", "风险", "隐患", "不安全行为", "管理缺陷", "前提条件", "人因", "cause",
-        "hazardsource", "hazard_source", "hazard", "hazardouscondition", "unsafeact", "unsafecondition",
-        # Stage1 升级 schema 的常见类型
-        "barrier", "resourcecondition", "humanstate", "managementaction", "accidentevent", "loss",
-        "unsafeact", "standardclause",
-    }
-    if node_type_lower in risk_types or node_type in risk_types:
-        return True
-
-    text = f"{_get_node_display_name(node)} {(node.properties or {}).get('description', '')}".lower()
-    risk_keywords = [
-        "风险", "隐患", "违规", "违章", "未", "缺失", "失效", "故障", "坠落", "打击", "坍塌", "触电", "起重",
-        "unsafe", "hazard", "incident", "accident", "injury", "death",
-    ]
-    return any(kw in text for kw in risk_keywords)
-
-
-def _get_node_display_name(node: Any) -> str:
-    if node.properties:
-        return node.properties.get("name") or node.properties.get("id") or node.id
-    return node.id
-
-
-
-
-LAYER_FALLBACK_BY_TYPE = {
-    "managementaction": ("S", "S2"),
-    "standardclause": ("O", "O1"),
-    "resourcecondition": ("C", "C2"),
-    "barrier": ("C", "C3"),
-    "humanstate": ("C", "C6"),
-    "hazardsource": ("C", "C2"),
-    "unsafeact": ("A", "A2"),
-    "accidentevent": ("E", None),
-    "loss": ("L", None),
-}
-
-
-def _fallback_classification(node: Any) -> Optional[Dict[str, Any]]:
-    node_type = (node.type or "").strip().lower()
-    if node_type in LAYER_FALLBACK_BY_TYPE:
-        layer_code, category_code = LAYER_FALLBACK_BY_TYPE[node_type]
-        return {
-            "layer_code": layer_code,
-            "category_code": category_code,
-            "confidence": 0.45,
-            "reason": f"fallback_by_node_type:{node.type}",
-            "evidence": _get_node_display_name(node),
-        }
-
-    name = _get_node_display_name(node)
-    lower = (name or "").lower()
-    if any(k in lower for k in ["坠落", "打击", "坍塌", "触电", "起重", "事故", "事件"]):
-        return {"layer_code": "E", "category_code": None, "confidence": 0.4, "reason": "fallback_by_event_keyword", "evidence": name}
-    if any(k in lower for k in ["死亡", "重伤", "轻伤", "损失", "伤亡"]):
-        return {"layer_code": "L", "category_code": None, "confidence": 0.4, "reason": "fallback_by_loss_keyword", "evidence": name}
-    if any(k in lower for k in ["未", "违章", "违规", "冒险", "错误操作"]):
-        return {"layer_code": "A", "category_code": "A2", "confidence": 0.4, "reason": "fallback_by_action_keyword", "evidence": name}
-    return None
-
-
 def _preview_causal_chain(graph_doc: GraphDocument) -> str:
-    """在控制台展示每个 chunk 的简易因果链预览。"""
+    """在控制台展示每个 chunk 的简易 HFCSA 投影视图。"""
     node_map = {}
     for n in graph_doc.nodes:
         props = n.properties or {}
+        if not props.get("is_main_chain_candidate"):
+            continue
         node_map[n.id] = {
-            "name": props.get("name") or n.id,
-            "layer": props.get("layer_code"),
-            "category": props.get("category_code"),
+            "name": props.get("name") or props.get("text") or n.id,
+            "layer": props.get("hfsca_layer") or props.get("layer_code"),
+            "category": props.get("hfsca_category") or props.get("category_code"),
         }
 
-    allowed = set(CTP_ALLOWED_TRANSITIONS)
     chain_edges: List[Tuple[str, str]] = []
-
     for rel in graph_doc.relationships:
-        s = getattr(rel.source, 'id', None)
-        t = getattr(rel.target, 'id', None)
-        if not s or not t or s not in node_map or t not in node_map:
+        source_id = getattr(getattr(rel, "source", None), "id", None)
+        target_id = getattr(getattr(rel, "target", None), "id", None)
+        rel_props = getattr(rel, "properties", None) or {}
+        projection_type = rel_props.get("projection_type")
+        if projection_type != "NEXT_LEVEL_CAUSES":
             continue
-        sl = node_map[s]["layer"]
-        tl = node_map[t]["layer"]
-        if sl and tl and (sl, tl) in allowed:
-            chain_edges.append((s, t))
+        if source_id in node_map and target_id in node_map:
+            chain_edges.append((source_id, target_id))
 
     if not chain_edges:
-        per_layer = {k: [] for k in ["O", "S", "C", "A", "E", "L"]}
-        for nid, meta in node_map.items():
-            layer = meta.get("layer")
-            if layer in per_layer:
-                per_layer[layer].append(nid)
-
-        prev = None
-        for layer in ["O", "S", "C", "A", "E", "L"]:
-            if not per_layer[layer]:
-                continue
-            cur = per_layer[layer][0]
-            if prev and (node_map[prev]["layer"], layer) in allowed:
-                chain_edges.append((prev, cur))
-            prev = cur
-
-    if not chain_edges:
-        return "[CTP预览] 当前 chunk 无法生成有效因果链（缺少可匹配层级节点）。"
+        return "[HFCSA预览] 当前 chunk 无 NEXT_LEVEL_CAUSES 投影关系。"
 
     segments = []
-    for s, t in chain_edges:
-        sm = node_map[s]
-        tm = node_map[t]
-        segments.append(f"{sm['layer']}:{sm['name']} -> {tm['layer']}:{tm['name']}")
-    return "[CTP预览] " + " | ".join(segments)
+    for source_id, target_id in chain_edges:
+        source_meta = node_map[source_id]
+        target_meta = node_map[target_id]
+        segments.append(
+            f"{source_meta['layer']}:{source_meta['name']} -> {target_meta['layer']}:{target_meta['name']}"
+        )
+    return "[HFCSA预览] " + " | ".join(segments)
+
+def _filter_stage1_relationships(allowed_relationships: List[str]) -> List[str]:
+    banned = {"NEXT_LEVEL_CAUSES", "SUPPORTED_BY", "CO_OCCURS_IN_EVIDENCE"}
+    return [rel for rel in allowed_relationships if rel not in banned]
 
 
-def generate_graphDocuments(model: str, graph: Neo4jGraph, chunkId_chunkDoc_list: List, allowedNodes=None,
-                            allowedRelationship=None) -> List[GraphDocument]:
+def _build_evidence_context(evidence_units: Optional[List[Dict[str, Any]]]) -> str:
+    if not evidence_units:
+        return ""
+    lines = []
+    for idx, unit in enumerate(evidence_units[:8], start=1):
+        payload = unit.__dict__ if hasattr(unit, "__dict__") else unit
+        lines.append(
+            f"[EU{idx}] id={payload.get('unit_id')} kind={payload.get('unit_kind')} "
+            f"triggers={payload.get('trigger_words') or []} text={payload.get('text') or payload.get('content')}"
+        )
+    return "\n候选证据片段:\n" + "\n".join(lines)
+
+
+def _enrich_graph_document_metadata(graph_doc: GraphDocument, evidence_units: Optional[List[Dict[str, Any]]]) -> None:
+    source_md = graph_doc.source.metadata if graph_doc.source and graph_doc.source.metadata else {}
+    evidence_ids = []
+    if evidence_units:
+        for unit in evidence_units:
+            payload = unit.__dict__ if hasattr(unit, "__dict__") else unit
+            evidence_ids.append(payload.get("unit_id"))
+    for node in graph_doc.nodes:
+        props = node.properties or {}
+        props.setdefault("core_type", node.type)
+        props.setdefault("doc_id", source_md.get("doc_id"))
+        props.setdefault("kg_scope", source_md.get("kg_scope"))
+        props.setdefault("kg_id", source_md.get("kg_id"))
+        props.setdefault("source_chunk_id", source_md.get("id") or (source_md.get("combined_chunk_ids") or [None])[0])
+        props.setdefault("evidence_unit_ids", evidence_ids)
+        props.setdefault("extraction_stage", "stage1_core")
+        node.properties = props
+    for rel in graph_doc.relationships:
+        props = rel.properties or {}
+        props.setdefault("doc_id", source_md.get("doc_id"))
+        props.setdefault("kg_scope", source_md.get("kg_scope"))
+        props.setdefault("kg_id", source_md.get("kg_id"))
+        props.setdefault("source_chunk_id", source_md.get("id") or (source_md.get("combined_chunk_ids") or [None])[0])
+        props.setdefault("evidence_unit_ids", evidence_ids)
+        props.setdefault("extraction_stage", "stage1_core")
+        rel.properties = props
+
+
+def generate_graphDocuments(
+    model: str,
+    graph: Neo4jGraph,
+    chunkId_chunkDoc_list: List,
+    allowedNodes=None,
+    allowedRelationship=None,
+    domain_pack_id: str = "construction",
+    evidence_units_by_chunk: dict | None = None
+) -> List[GraphDocument]:
+    pack = get_domain_pack(domain_pack_id)
 
     if not allowedNodes:
-        allowedNodes = CONSTRUCTION_NODE_LABELS
+        allowedNodes = pack.allowed_core_node_types()
     if not allowedRelationship:
-        allowedRelationship = CONSTRUCTION_REL_TYPES
+        allowedRelationship = pack.allowed_rel_types()
 
     if isinstance(allowedNodes, str) and allowedNodes:
         allowedNodes = allowedNodes.split(',')
     if isinstance(allowedRelationship, str) and allowedRelationship:
         allowedRelationship = allowedRelationship.split(',')
+    allowedRelationship = _filter_stage1_relationships(allowedRelationship)
+
+    evidence_aware_chunks = []
+    for item in chunkId_chunkDoc_list:
+        chunk_doc = item["chunk_doc"]
+        metadata = dict(chunk_doc.metadata or {})
+        chunk_id = item.get("chunk_id")
+        units = evidence_units_by_chunk.get(chunk_id, []) if evidence_units_by_chunk else []
+        evidence_context = _build_evidence_context(units)
+        if evidence_context:
+            chunk_doc = type(chunk_doc)(
+                page_content=f"{chunk_doc.page_content}\n\n{evidence_context}",
+                metadata=metadata,
+            )
+        evidence_aware_chunks.append({"chunk_id": chunk_id, "chunk_doc": chunk_doc})
 
     logging.info(f"使用 Schema - 节点: {allowedNodes}, 关系: {allowedRelationship}")
 
     graph_documents = []
     if model == "diffbot":
-        graph_documents = get_graph_from_diffbot(graph, chunkId_chunkDoc_list)
+        graph_documents = get_graph_from_diffbot(graph, evidence_aware_chunks)
 
     elif model in OPENAI_MODELS:
-        graph_documents = get_graph_from_OpenAI(model, graph, chunkId_chunkDoc_list, allowedNodes, allowedRelationship)
+        graph_documents = get_graph_from_OpenAI(model, graph, evidence_aware_chunks, allowedNodes, allowedRelationship)
 
     elif model in GEMINI_MODELS:
-        graph_documents = get_graph_from_Gemini(model, graph, chunkId_chunkDoc_list, allowedNodes, allowedRelationship)
-
-    # elif model in GROQ_MODELS :
-    #     graph_documents = get_graph_from_Groq_Llama3(MODEL_VERSIONS[model], graph, chunkId_chunkDoc_list, allowedNodes, allowedRelationship)
-
+        graph_documents = get_graph_from_Gemini(model, graph, evidence_aware_chunks, allowedNodes, allowedRelationship)
     else:
-        graph_documents = get_graph_from_llm(model, chunkId_chunkDoc_list, allowedNodes, allowedRelationship)
+        graph_documents = get_graph_from_llm(model, evidence_aware_chunks, allowedNodes, allowedRelationship)
+
+    logging.info(
+        "使用 Domain Pack[%s] Schema - 节点: %s, 关系: %s",
+        domain_pack_id,
+        allowedNodes,
+        allowedRelationship,
+    )
 
 
-    logging.info(f"提取出来的graph_documents: {graph_documents}")
 
-    logging.info("开始进行阶段二：风险因子受控分类...")
-    total_hfcsa_enriched = 0
+    logging.info("提取出来的graph_documents: %s", graph_documents)
+    logging.info("开始应用 HFCSA overlay...")
 
+    overlaid_documents = []
     for graph_doc in graph_documents:
-        for node in graph_doc.nodes:
-            if not _is_risk_factor_node(node):
-                continue
-
-            existing_props = node.properties or {}
-            if existing_props.get("layer_code") and existing_props.get("category_code"):
-                continue
-
-            context = graph_doc.source.page_content if graph_doc.source else ""
-            classification = classify_risk_factor_hfcsa_with_llm(
-                _get_node_display_name(node),
-                context,
-                model,
-            )
-            if not classification:
-                classification = _fallback_classification(node)
-
-            if classification:
-                existing_props.update(
-                    {key: value for key, value in classification.items() if value is not None}
-                )
-                node.properties = existing_props
-                total_hfcsa_enriched += 1
-
-        logging.info(
-            "风险因子受控分类完成。当前累计覆盖 %s 个节点。",
-            total_hfcsa_enriched,
-        )
+        graph_doc = apply_hfsca_overlay(graph_doc, pack)
         preview = _preview_causal_chain(graph_doc)
         logging.info(preview)
         print(preview)
-    logging.info(f"风险因子匹配后得到的graph_documents: {graph_documents}")
-    return graph_documents
+        overlaid_documents.append(graph_doc)
+
+    logging.info("HFCSA overlay 后得到的graph_documents: %s", overlaid_documents)
+    return overlaid_documents

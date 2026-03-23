@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS evidence_units (
 );
 CREATE INDEX IF NOT EXISTS idx_evidence_units_parent ON evidence_units(parent_evidence_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_units_kind ON evidence_units(unit_kind);
+CREATE INDEX IF NOT EXISTS idx_evidence_units_parent_kind ON evidence_units(parent_evidence_id, unit_kind);
+CREATE INDEX IF NOT EXISTS idx_evidence_units_parent_span ON evidence_units(parent_evidence_id, start_char, end_char);
 
 -- 因果链主表：按报告/chunk 持久化生成结果，便于后续分析与复用
 CREATE TABLE IF NOT EXISTS causal_chains (
@@ -842,6 +844,60 @@ class EvidenceStore:
                 return {r["unit_id"]: r["content"] for r in rows}
             finally:
                 conn.close()
+
+    def upsert_evidence_units(self, units: Sequence[Any]) -> None:
+        for unit in units:
+            payload = unit.__dict__ if hasattr(unit, "__dict__") else dict(unit)
+            self.upsert_unit(
+                unit_id=payload.get("unit_id"),
+                parent_evidence_id=payload.get("parent_chunk_id") or payload.get("parent_evidence_id"),
+                unit_kind=payload.get("unit_kind") or "causal_unit",
+                content=payload.get("text") or payload.get("content") or "",
+                start_char=payload.get("start_char"),
+                end_char=payload.get("end_char"),
+                meta={
+                    "report_id": payload.get("report_id"),
+                    "page_range": payload.get("page_range"),
+                    "trigger_words": payload.get("trigger_words") or [],
+                    "temporal_cues": payload.get("temporal_cues") or [],
+                    "actors": payload.get("actors") or [],
+                    "section_name": payload.get("section_name"),
+                    "prev_unit_id": payload.get("prev_unit_id"),
+                    "next_unit_id": payload.get("next_unit_id"),
+                    "parent_chunk_id": payload.get("parent_chunk_id") or payload.get("parent_evidence_id"),
+                    **(payload.get("meta") or {}),
+                },
+            )
+
+    def get_evidence_units_by_parent(self, parent_evidence_id: str) -> List[Dict[str, Any]]:
+        return [
+            {
+                "unit_id": unit.unit_id,
+                "parent_evidence_id": unit.parent_evidence_id,
+                "unit_kind": unit.unit_kind,
+                "start_char": unit.start_char,
+                "end_char": unit.end_char,
+                "content": unit.content,
+                "meta": unit.meta,
+            }
+            for unit in self.list_units_for_parent(parent_evidence_id)
+        ]
+
+    def get_evidence_unit(self, unit_id: str) -> Optional[Dict[str, Any]]:
+        unit = self.get_unit(unit_id)
+        if not unit:
+            return None
+        return {
+            "unit_id": unit.unit_id,
+            "parent_evidence_id": unit.parent_evidence_id,
+            "unit_kind": unit.unit_kind,
+            "start_char": unit.start_char,
+            "end_char": unit.end_char,
+            "content": unit.content,
+            "meta": unit.meta,
+            "created_at": unit.created_at,
+            "updated_at": unit.updated_at,
+        }
 
     def list_units_for_parent(self, parent_evidence_id: str, unit_kind: Optional[str] = None) -> List[EvidenceUnit]:
         with self._lock:

@@ -4,7 +4,23 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="加入伪标签流程2.0">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="通用ontology+补充大模型提取出来的知识图谱">
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/_init_.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/base.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/construction/_init_.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/construction/exclusion_rules.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/construction/hfsca_priors.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/construction/manifest.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/construction/module_library.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/construction/pack.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/construction/relation_aliases.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/construction/type_lexicon.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/domain_packs/registry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/evidence_unit_builder.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/ontology/_init_.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/ontology/core_ontology.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/overlay/_init_.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/src/overlay/hfsca_overlay.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
@@ -20,11 +36,15 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/data_utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/entities/source_node.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/entities/source_node.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graph_query.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_query.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/kg_content.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/kg_content.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/schemas.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/schemas.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/create_chunks.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/create_chunks.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/evidence_store/sqlite_store.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/evidence_store/sqlite_store.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/generate_graphDocuments_from_llm.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/make_relationships.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/make_relationships.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/configs/casual_prior.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/configs/casual_prior.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/configs/casual_pseudo_labe_rules.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/configs/casual_pseudo_labe_rules.yaml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -393,7 +413,15 @@
       <option name="project" value="LOCAL" />
       <updated>1773964374897</updated>
     </task>
-    <option name="localTasksCounter" value="17" />
+    <task id="LOCAL-00017" summary="加入伪标签流程2.0">
+      <option name="closed" value="true" />
+      <created>1774226607490</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1774226607490</updated>
+    </task>
+    <option name="localTasksCounter" value="18" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -427,7 +455,8 @@
     <MESSAGE value="提取因果链_jointlk" />
     <MESSAGE value="加入伪标签流程" />
     <MESSAGE value="加入伪标签流程2.0" />
-    <option name="LAST_COMMIT_MESSAGE" value="加入伪标签流程2.0" />
+    <MESSAGE value="通用ontology+补充大模型提取出来的知识图谱" />
+    <option name="LAST_COMMIT_MESSAGE" value="通用ontology+补充大模型提取出来的知识图谱" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -458,10 +487,4 @@
       <default-breakpoints>
         <breakpoint type="python-exception">
           <properties notifyOnTerminate="true" exception="BaseException">
-            <option name="notifyOnTerminate" value="true" />
-          </properties>
-        </breakpoint>
-      </default-breakpoints>
-    </breakpoint-manager>
-  </component>
-</project>
+            <option name="notifyOnTerminate"

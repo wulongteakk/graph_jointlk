@@ -1,16 +1,12 @@
-
 import uuid
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Sequence
-
 from .baseline_extractor import BaselineCausalExtractor
 from .beam_search import BeamSearchChainBuilder
-from .jointlk_edge_scorer import CausalJointLKEdgeScorer
-from .neo4j_accessor import InstanceKGAccessor
+from .joint_edge_scorer import CausalJointLKEdgeScorer
+from .neo4j_accessor import Neo4jAccessor
 from .prior import CausalPrior, load_prior_config
 from .schemas import CausalEdge, CausalNode, ExtractionResult
-
-
 class CausalJointLKService:
     """End-to-end causal chain extraction on Instance-KG."""
 
@@ -24,7 +20,7 @@ class CausalJointLKService:
         self.graph = graph
         self.evidence_store = evidence_store
         self.prior = CausalPrior(load_prior_config(prior_config_path))
-        self.accessor = InstanceKGAccessor(graph)
+        self.accessor = Neo4jAccessor(graph)
         self.baseline = BaselineCausalExtractor(self.prior)
         self.chain_builder = BeamSearchChainBuilder(self.prior)
         self.neural_scorer = None

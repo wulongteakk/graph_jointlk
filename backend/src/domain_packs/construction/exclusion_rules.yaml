@@ -1,0 +1,4 @@
+excluded_relation_pairs:
+  - source: StandardClause
+    target: StandardClause
+    relation: CAUSES

@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +21,12 @@ class CausalNode:
     kg_id: Optional[str] = None
     labels: List[str] = field(default_factory=list)
     properties: Dict[str, Any] = field(default_factory=dict)
+    core_type: Optional[str] = None
+    hfsca_layer: Optional[str] = None
+    hfsca_category: Optional[str] = None
+    module_id: Optional[str] = None
+    event_stage: Optional[str] = None
+    is_main_chain_candidate: Optional[bool] = None
 
 
 @dataclass

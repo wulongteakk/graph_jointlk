@@ -1,0 +1,10 @@
+relation_aliases:
+  CAUSES: [导致, 引发, causes, lead to]
+  ENABLES: [使得, 促成, enables]
+  PRECEDES: [先于, 之前, precedes]
+  CO_OCCURS_IN_EVIDENCE: [共现, co-occur]
+  SUPPORTED_BY: [依据, supported by]
+  VIOLATES: [违反, violates]
+  INVOLVES: [涉及, 包含, involves]
+  LOCATED_AT: [位于, locates at]
+  SAME_AS: [同一, same as]

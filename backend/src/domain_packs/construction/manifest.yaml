@@ -1,0 +1,27 @@
+pack_id: construction
+allowed_core_node_types:
+  - SourceState
+  - SourceEvent
+  - IntermediateEvent
+  - HarmEvent
+  - Consequence
+  - WorkActivity
+  - Equipment
+  - Material
+  - Barrier
+  - Environment
+  - Location
+  - PersonRole
+  - OrganizationAction
+  - StandardClause
+  - EvidenceUnit
+allowed_rel_types:
+  - CAUSES
+  - ENABLES
+  - PRECEDES
+  - CO_OCCURS_IN_EVIDENCE
+  - SUPPORTED_BY
+  - VIOLATES
+  - INVOLVES
+  - LOCATED_AT
+  - SAME_AS

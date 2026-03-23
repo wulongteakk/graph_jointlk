@@ -1,0 +1,8 @@
+core_type_aliases:
+  SourceState: [hazardsource, resourcecondition, humanstate]
+  SourceEvent: [unsafeact]
+  IntermediateEvent: [accidentevent, intermediateevent]
+  HarmEvent: [harmevent]
+  Consequence: [loss]
+  OrganizationAction: [managementaction]
+  StandardClause: [standardclause]

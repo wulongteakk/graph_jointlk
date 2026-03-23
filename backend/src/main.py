@@ -15,6 +15,7 @@ from src.document_sources.wikipedia import *
 from src.document_sources.youtube import *
 from src.shared.common_fn import *
 from src.make_relationships import *
+from src.evidence_unit_builder import EvidenceUnitBuilder
 from src.document_sources.web_pages import *
 from src.kg_content import build_kg_context, scope_graph_documents
 from causal_jointlk.pseudo_pipeline import run_pseudo_label_pipeline_for_doc, AutoPseudoPipelineConfig
@@ -317,7 +318,7 @@ def extract_graph_from_file_local_file(graph, model, merged_file_path, fileName,
         raise Exception(f'File content is not available for file : {file_name}')
 
     return processing_source(graph, model, file_name, pages, allowedNodes, allowedRelationship, True, merged_file_path,
-                             uri, kg_scope=kg_scope, kg_id=kg_id)
+                             uri, kg_scope=kg_scope, kg_id=kg_id, domain_pack_id="construction")
 
 
 def extract_graph_from_file_s3(graph, model, source_url, aws_access_key_id, aws_secret_access_key, allowedNodes,
@@ -332,7 +333,7 @@ def extract_graph_from_file_s3(graph, model, source_url, aws_access_key_id, aws_
         raise Exception(f'File content is not available for file : {file_name}')
 
     return processing_source(graph, model, file_name, pages, allowedNodes, allowedRelationship, kg_scope=kg_scope,
-                             kg_id=kg_id)
+                             kg_id=kg_id, domain_pack_id="construction")
 
 
 def extract_graph_from_web_page(graph, model, source_url, allowedNodes, allowedRelationship, kg_scope=None, kg_id=None):
@@ -342,7 +343,7 @@ def extract_graph_from_web_page(graph, model, source_url, allowedNodes, allowedR
         raise Exception(f'Content is not available for given URL : {file_name}')
 
     return processing_source(graph, model, file_name, pages, allowedNodes, allowedRelationship, kg_scope=kg_scope,
-                             kg_id=kg_id)
+                             kg_id=kg_id, domain_pack_id="construction")
 
 
 def extract_graph_from_file_youtube(graph, model, source_url, allowedNodes, allowedRelationship, kg_scope=None,
@@ -353,7 +354,7 @@ def extract_graph_from_file_youtube(graph, model, source_url, allowedNodes, allo
         raise Exception(f'Youtube transcript is not available for file : {file_name}')
 
     return processing_source(graph, model, file_name, pages, allowedNodes, allowedRelationship, kg_scope=kg_scope,
-                             kg_id=kg_id)
+                             kg_id=kg_id, domain_pack_id="construction")
 
 
 def extract_graph_from_file_Wikipedia(graph, model, wiki_query, max_sources, language, allowedNodes,
@@ -363,7 +364,7 @@ def extract_graph_from_file_Wikipedia(graph, model, wiki_query, max_sources, lan
         raise Exception(f'Wikipedia page is not available for file : {file_name}')
 
     return processing_source(graph, model, file_name, pages, allowedNodes, allowedRelationship, kg_scope=kg_scope,
-                             kg_id=kg_id)
+                             kg_id=kg_id, domain_pack_id="construction")
 
 
 def extract_graph_from_file_gcs(graph, model, gcs_project_id, gcs_bucket_name, gcs_bucket_folder, gcs_blob_filename,
@@ -374,11 +375,11 @@ def extract_graph_from_file_gcs(graph, model, gcs_project_id, gcs_bucket_name, g
         raise Exception(f'File content is not available for file : {file_name}')
 
     return processing_source(graph, model, file_name, pages, allowedNodes, allowedRelationship, kg_scope=kg_scope,
-                             kg_id=kg_id)
+                             kg_id=kg_id, domain_pack_id="construction")
 
 
 def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelationship, is_uploaded_from_local=None,
-                      merged_file_path=None, uri=None, kg_scope=None, kg_id=None):
+                      merged_file_path=None, uri=None, kg_scope=None, kg_id=None, domain_pack_id="construction"):
     """
      Extracts a Neo4jGraph from a PDF file based on the model.
 
@@ -414,11 +415,27 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
                 text = text.replace(j, ' ')
             else:
                 text = text.replace(j, '')
-        pages[i] = Document(page_content=str(text), metadata=pages[i].metadata)
+        page_metadata = dict(pages[i].metadata or {})
+        page_metadata.setdefault("doc_id", ctx.doc_id)
+        page_metadata.setdefault("kg_scope", ctx.kg_scope)
+        page_metadata.setdefault("kg_id", ctx.kg_id)
+        page_metadata.setdefault("fileName", file_name)
+        pages[i] = Document(page_content=str(text), metadata=page_metadata)
     create_chunks_obj = CreateChunksofDocument(pages, graph)
     chunks = create_chunks_obj.split_file_into_chunks()
     chunkId_chunkDoc_list = create_relation_between_chunks(graph, file_name, chunks, doc_id=ctx.doc_id,
                                                            kg_scope=ctx.kg_scope, kg_id=ctx.kg_id)
+    evidence_units = EvidenceUnitBuilder().build_from_chunks(chunkId_chunkDoc_list)
+    evidence_units_by_chunk = index_units(evidence_units)
+    persist_evidence_units(
+        graph=graph,
+        evidence_store=None,
+        evidence_units=evidence_units,
+        file_name=file_name,
+        doc_id=ctx.doc_id,
+        kg_scope=ctx.kg_scope,
+        kg_id=ctx.kg_id,
+    )
     if result[0]['Status'] != 'Processing':
         obj_source_node = sourceNode()
         status = "Processing"
@@ -441,6 +458,7 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
         job_status = "Completed"
         node_count = 0
         rel_count = 0
+        comparison_summary = None
         for i in range(0, len(chunkId_chunkDoc_list), update_graph_chunk_processed):
             select_chunks_upto = i + update_graph_chunk_processed
             logging.info(f'Selected Chunks upto: {select_chunks_upto}')
@@ -461,7 +479,9 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
                 exit
             else:
                 node_count, rel_count = processing_chunks(selected_chunks, graph, file_name, model, allowedNodes,
-                                                          allowedRelationship, node_count, rel_count, ctx)
+                                                          allowedRelationship, node_count, rel_count, ctx,evidence_units_by_chunk,
+                                                          domain_pack_id=domain_pack_id,)
+
                 end_time = datetime.now()
                 processed_time = end_time - start_time
 
@@ -555,17 +575,21 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
             "model": model,
             "success_count": 1,
             "pseudo_label_summary": pseudo_result if job_status == "Completed" else None,
+            "kg_quality_comparison": comparison_summary if job_status == "Completed" else None,
         }
     else:
         logging.info('File does not process because it\'s already in Processing status')
 
 
 def processing_chunks(chunkId_chunkDoc_list, graph, file_name, model, allowedNodes, allowedRelationship, node_count,
-                      rel_count, ctx=None):
+                      rel_count, ctx=None, evidence_units_by_chunk=None, domain_pack_id="construction",):
     # create vector index and update chunk node with embedding
     update_embedding_create_vector_index(graph, chunkId_chunkDoc_list, file_name, doc_id=(ctx.doc_id if ctx else None))
     logging.info("Get graph document list from models")
-    graph_documents = generate_graphDocuments(model, graph, chunkId_chunkDoc_list, allowedNodes, allowedRelationship)
+    graph_documents = generate_graphDocuments(
+        model, graph, chunkId_chunkDoc_list, allowedNodes, allowedRelationship,
+        domain_pack_id=domain_pack_id,evidence_units_by_chunk=evidence_units_by_chunk,
+    )
 
     # Scope node ids to avoid BG/Instance collisions
     if ctx is not None:
@@ -576,11 +600,11 @@ def processing_chunks(chunkId_chunkDoc_list, graph, file_name, model, allowedNod
         logging.warning(f"No graph documents were generated for file {file_name}. Skipping chunk processing.")
         # 即使没有生成图，也需要保存已有的图文档（如果之前批次有的话）
         save_graphDocuments_in_neo4j(graph, [])  # 传入空列表以避免错误
-        return node_count, rel_count  # 返回未修改的计数值
+        return node_count, rel_count ,build_kg_quality_comparison([], []) # 返回未修改的计数值
 
     save_graphDocuments_in_neo4j(graph, graph_documents)
     chunks_and_graphDocuments_list = get_chunk_and_graphDocument(graph_documents, chunkId_chunkDoc_list)
-    merge_relationship_between_chunk_and_entites(graph, chunks_and_graphDocuments_list)
+    merge_relationship_between_chunk_and_entites(graph, chunks_and_graphDocuments_list,evidence_units_by_chunk)
 
     distinct_nodes = set()
     relations = []
@@ -607,7 +631,12 @@ def processing_chunks(chunkId_chunkDoc_list, graph, file_name, model, allowedNod
     print(f'relations :{relations}')
     print(f'node count internal func:{node_count}')
     print(f'relation count internal func:{rel_count}')
-    return node_count, rel_count
+
+    comparison_summary = build_kg_quality_comparison(
+        graph_documents,
+        [unit for units in (evidence_units_by_chunk or {}).values() for unit in units],
+    )
+    return node_count, rel_count, comparison_summary
 
 
 def get_source_list_from_graph(uri, userName, password, db_name=None):
@@ -779,3 +808,41 @@ def populate_graph_schema_from_text(text, model, is_schema_description_cheked):
     result = schema_extraction_from_text(text, model, is_schema_description_cheked)
     return {"labels": result.labels, "relationshipTypes": result.relationshipTypes}
 
+def index_units(evidence_units):
+    grouped = {}
+    for unit in evidence_units or []:
+        grouped.setdefault(unit.parent_chunk_id, []).append(unit)
+    return grouped
+
+
+def build_kg_quality_comparison(graph_documents, evidence_units):
+    baseline_nodes = sum(len(doc.nodes) for doc in graph_documents or [])
+    baseline_relationships = sum(len(doc.relationships) for doc in graph_documents or [])
+    enhanced_supported_nodes = 0
+    enhanced_triggered_units = 0
+    total_unit_links = 0
+    for doc in graph_documents or []:
+        for node in doc.nodes:
+            props = node.properties or {}
+            if props.get("evidence_unit_ids"):
+                enhanced_supported_nodes += 1
+                total_unit_links += len(props.get("evidence_unit_ids") or [])
+    for unit in evidence_units or []:
+        if unit.trigger_words:
+            enhanced_triggered_units += 1
+    return {
+        "baseline_llm_only": {
+            "node_count": baseline_nodes,
+            "relationship_count": baseline_relationships,
+            "evidence_grounded_node_count": 0,
+            "causal_evidence_unit_count": 0,
+        },
+        "enhanced_with_evidence_units": {
+            "node_count": baseline_nodes,
+            "relationship_count": baseline_relationships,
+            "evidence_grounded_node_count": enhanced_supported_nodes,
+            "causal_evidence_unit_count": len(evidence_units or []),
+            "triggered_unit_count": enhanced_triggered_units,
+            "avg_candidate_evidence_per_node": round(total_unit_links / max(enhanced_supported_nodes, 1), 2),
+        },
+    }

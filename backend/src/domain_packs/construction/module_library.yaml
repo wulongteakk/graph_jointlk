@@ -1,0 +1,13 @@
+modules:
+  - module_id: scaffolding
+    keywords: [脚手架, 架体, scaffold]
+  - module_id: lifting
+    keywords: [起重, 吊装, 塔吊, crane]
+  - module_id: excavation
+    keywords: [基坑, 土方, excavation]
+  - module_id: electricity
+    keywords: [临电, 配电, 漏电, 电缆, 触电]
+  - module_id: formwork
+    keywords: [模板, 支撑体系, formwork]
+  - module_id: work_at_height
+    keywords: [高处, 坠落, 临边, 洞口]
