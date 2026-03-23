@@ -329,7 +329,7 @@ def update_embedding_create_vector_index(graph, chunkId_chunkDoc_list, file_name
     if doc_id:
         query_to_create_embedding = """
             UNWIND $data AS row
-            MATCH (d:Document {doc_id: $doc_id})
+            MATCH (d:SourceDocument:Document {doc_id: $doc_id})
             MERGE (c:Chunk {id: row.chunkId})
             SET c.embedding = row.embeddings
             MERGE (c)-[:PART_OF]->(d)
@@ -338,7 +338,7 @@ def update_embedding_create_vector_index(graph, chunkId_chunkDoc_list, file_name
     else:
         query_to_create_embedding = """
             UNWIND $data AS row
-            MATCH (d:Document {fileName: $fileName})
+            MATCH (d:SourceDocument:Document {fileName: $fileName})
             MERGE (c:Chunk {id: row.chunkId})
             SET c.embedding = row.embeddings
             MERGE (c)-[:PART_OF]->(d)
@@ -433,8 +433,8 @@ def create_relation_between_chunks(
 
     CALL apoc.do.when(
         data.doc_id IS NULL,
-        'WITH $c AS c MATCH (d:Document {fileName: $file_name}) MERGE (c)-[:PART_OF]->(d) RETURN 1 as _',
-        'WITH $c AS c MATCH (d:Document {doc_id: $doc_id}) MERGE (c)-[:PART_OF]->(d) RETURN 1 as _',
+        'WITH $c AS c MATCH (d:SourceDocument:Document {fileName: $file_name}) MERGE (c)-[:PART_OF]->(d) RETURN 1 as _',
+        'WITH $c AS c MATCH (d:SourceDocument:Document {doc_id: $doc_id}) MERGE (c)-[:PART_OF]->(d) RETURN 1 as _',
         {c: c, file_name: data.f_name, doc_id: data.doc_id}
     ) YIELD value
 
@@ -447,7 +447,7 @@ def create_relation_between_chunks(
     if first_chunk_id and doc_id:
         graph.query(
             """
-            MATCH (d:Document {doc_id: $doc_id})
+            MATCH (d:SourceDocument:Document {doc_id: $doc_id})
             MATCH (c:Chunk {id: $chunk_id})
             MERGE (d)-[:FIRST_CHUNK]->(c)
             """,
@@ -456,7 +456,7 @@ def create_relation_between_chunks(
     elif first_chunk_id:
         graph.query(
             """
-            MATCH (d:Document {fileName: $f_name})
+            MATCH (d:SourceDocument:Document {fileName: $f_name})
             MATCH (c:Chunk {id: $chunk_id})
             MERGE (d)-[:FIRST_CHUNK]->(c)
             """,

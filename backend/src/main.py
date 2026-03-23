@@ -19,7 +19,7 @@ from src.evidence_unit_builder import EvidenceUnitBuilder
 from src.document_sources.web_pages import *
 from src.kg_content import build_kg_context, scope_graph_documents
 from causal_jointlk.pseudo_pipeline import run_pseudo_label_pipeline_for_doc, AutoPseudoPipelineConfig
-# from src.graph_export import generate_gpickle_export,export_jointlk_json_artifacts
+from src.graph_export import generate_gpickle_export,export_jointlk_json_artifacts
 
 import re
 from langchain_community.document_loaders import WikipediaLoader, WebBaseLoader
@@ -61,7 +61,7 @@ def _build_pseudo_console_hook(show_edge_process: bool):
     def _hook(event):
         stage = event.get("stage")
         if stage == "edge_decision" and show_edge_process:
-            logging.info(
+            """logging.info(
                 "[pseudo-label][edge %s/%s] %s --%s--> %s | label=%s | conf=%.3f | rule=%s",
                 event.get("edge_index"),
                 event.get("num_candidate_edges"),
@@ -71,11 +71,11 @@ def _build_pseudo_console_hook(show_edge_process: bool):
                 event.get("label"),
                 float(event.get("confidence") or 0.0),
                 event.get("primary_rule") or "-",
-            )
+            )"""
             return
         if stage == "doc_summary":
             breakdown = event.get("label_breakdown") or {}
-            logging.info(
+            """logging.info(
                 "[pseudo-label][summary] doc_id=%s file=%s | candidates=%s pseudo=%s (pos=%s, neg=%s) ambiguous=%s",
                 event.get("doc_id"),
                 event.get("file_name"),
@@ -84,7 +84,7 @@ def _build_pseudo_console_hook(show_edge_process: bool):
                 breakdown.get("positive", 0),
                 breakdown.get("negative", 0),
                 event.get("ambiguous_edges", 0),
-            )
+            )"""
 
     return _hook
 
@@ -478,9 +478,13 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
                 logging.info('Exit from running loop of processing file')
                 exit
             else:
-                node_count, rel_count = processing_chunks(selected_chunks, graph, file_name, model, allowedNodes,
+                node_count, rel_count ,batch_comparison_summary = processing_chunks(selected_chunks, graph, file_name, model, allowedNodes,
                                                           allowedRelationship, node_count, rel_count, ctx,evidence_units_by_chunk,
                                                           domain_pack_id=domain_pack_id,)
+                comparison_summary = _merge_kg_quality_comparison(
+                    comparison_summary,
+                    batch_comparison_summary,
+                )
 
                 end_time = datetime.now()
                 processed_time = end_time - start_time
@@ -632,12 +636,55 @@ def processing_chunks(chunkId_chunkDoc_list, graph, file_name, model, allowedNod
     print(f'node count internal func:{node_count}')
     print(f'relation count internal func:{rel_count}')
 
+    current_chunk_ids={
+        item.get("chunk_id")
+        for item in (chunks_and_graphDocuments_list or [])
+        if isinstance(item, dict) and item.get("chunk_id")
+    }
     comparison_summary = build_kg_quality_comparison(
         graph_documents,
-        [unit for units in (evidence_units_by_chunk or {}).values() for unit in units],
+        [
+            unit
+            for chunk_id, units in (evidence_units_by_chunk or {}).items()
+            if chunk_id in current_chunk_ids
+            for unit in units
+        ],
     )
     return node_count, rel_count, comparison_summary
 
+
+def _merge_kg_quality_comparison(existing_summary, new_summary):
+    if not existing_summary:
+        return new_summary
+    if not new_summary:
+        return existing_summary
+
+    merged_summary = {
+        "baseline_llm_only": dict(existing_summary.get("baseline_llm_only") or {}),
+        "enhanced_with_evidence_units": dict(existing_summary.get("enhanced_with_evidence_units") or {}),
+    }
+    for section in ("baseline_llm_only", "enhanced_with_evidence_units"):
+        existing_section = existing_summary.get(section) or {}
+        new_section = new_summary.get(section) or {}
+        target_section = merged_summary[section]
+        for key in set(existing_section) | set(new_section):
+            existing_value = existing_section.get(key)
+            new_value = new_section.get(key)
+            if isinstance(existing_value, (int, float)) or isinstance(new_value, (int, float)):
+                target_section[key] = (existing_value or 0) + (new_value or 0)
+            elif new_value is not None:
+                target_section[key] = new_value
+            else:
+                target_section[key] = existing_value
+
+    grounded_nodes = merged_summary["enhanced_with_evidence_units"].get("evidence_grounded_node_count", 0)
+    total_candidate_evidence = merged_summary["enhanced_with_evidence_units"].get("total_candidate_evidence_links", 0)
+    if grounded_nodes:
+        merged_summary["enhanced_with_evidence_units"]["avg_candidate_evidence_per_node"] = round(
+            total_candidate_evidence / grounded_nodes, 2
+        )
+
+    return merged_summary
 
 def get_source_list_from_graph(uri, userName, password, db_name=None):
     """
@@ -843,6 +890,7 @@ def build_kg_quality_comparison(graph_documents, evidence_units):
             "evidence_grounded_node_count": enhanced_supported_nodes,
             "causal_evidence_unit_count": len(evidence_units or []),
             "triggered_unit_count": enhanced_triggered_units,
+            "total_candidate_evidence_links": total_unit_links,
             "avg_candidate_evidence_per_node": round(total_unit_links / max(enhanced_supported_nodes, 1), 2),
         },
     }

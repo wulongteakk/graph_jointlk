@@ -20,6 +20,7 @@ QUERY_MAP = {
 DOC_CHUNK_ENTITIES_QUERY = """
     MATCH (d:Document)
     WHERE d.fileName IN $document_names
+        AND (d:SourceDocument OR exists { (d)<-[:PART_OF]-(:Chunk) })
     WITH d.fileName AS file_name, collect(d) AS docs
     WITH reduce(best = head(docs), item IN tail(docs) |
         CASE
@@ -50,6 +51,7 @@ DOC_CHUNK_ENTITIES_QUERY = """
 QUERY_WITH_DOCUMENT = """
     MATCH docs = (d:Document) 
     WHERE d.fileName IN $document_names
+        AND (d:SourceDocument OR exists { (d)<-[:PART_OF]-(:Chunk) })
     WITH docs, d ORDER BY d.createdAt DESC 
     CALL {{ WITH d
       OPTIONAL MATCH chunks=(d)<-[:PART_OF]-(c:Chunk)
@@ -64,6 +66,7 @@ QUERY_WITH_DOCUMENT = """
 QUERY_WITH_DOCUMENT = """
     MATCH docs = (d:Document) 
     WHERE d.fileName IN $document_names
+        AND (d:SourceDocument OR exists { (d)<-[:PART_OF]-(:Chunk) })
     WITH docs, d
     ORDER BY coalesce(d.updatedAt, d.createdAt) DESC
     WITH d.fileName AS file_name, collect({docs: docs, d: d}) AS rows
@@ -269,7 +272,11 @@ def get_completed_documents(driver):
     """
     Retrieves the names of all documents with the status 'Completed' from the database.
     """
-    docs_query = "MATCH(node:Document {status:'Completed'}) RETURN node"
+    docs_query = """
+    MATCH (node:Document {status:'Completed'})
+    WHERE node:SourceDocument OR exists { (node)<-[:PART_OF]-(:Chunk) }
+    RETURN node
+    """
     
     try:
         logging.info("Executing query to retrieve completed documents.")

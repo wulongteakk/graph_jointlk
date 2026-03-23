@@ -60,14 +60,15 @@ class Neo4jAccessor:
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         query = """
-        MATCH (d:Document)
+        MATCH (d:SourceDocument:Document)
+        WITH d, properties(d) AS dp
         WHERE ($kg_scope IS NULL OR coalesce(d.kg_scope, 'instance') = $kg_scope)
           AND ($kg_id IS NULL OR d.kg_id = $kg_id)
-          AND ($doc_ids IS NULL OR coalesce(d.doc_id, d.id, d.fileName, d.file_name) IN $doc_ids)
-          AND ($file_names IS NULL OR coalesce(d.fileName, d.file_name, d.name) IN $file_names)
+          AND ($doc_ids IS NULL OR coalesce(d.doc_id, d.id, d.fileName, dp['file_name']) IN $doc_ids)
+          AND ($file_names IS NULL OR coalesce(d.fileName, dp['file_name'], d.name) IN $file_names)
         RETURN DISTINCT
-          coalesce(d.doc_id, d.id, d.fileName, d.file_name) AS doc_id,
-          coalesce(d.fileName, d.file_name, d.name) AS file_name,
+          coalesce(d.doc_id, d.id, d.fileName, dp['file_name']) AS doc_id,
+          coalesce(d.fileName, dp['file_name'], d.name) AS file_name,
           coalesce(d.kg_scope, 'instance') AS kg_scope,
           d.kg_id AS kg_id
         ORDER BY file_name
@@ -97,34 +98,36 @@ class Neo4jAccessor:
     ) -> List[CandidateEdge]:
         relation_types = [str(x).strip().upper() for x in (relation_types or []) if str(x).strip()]
         query = """
-        MATCH (d:Document)
+        MATCH (d:SourceDocument:Document)
+        WITH d, properties(d) AS dp
         WHERE ($kg_scope IS NULL OR coalesce(d.kg_scope, 'instance') = $kg_scope)
           AND ($kg_id IS NULL OR d.kg_id = $kg_id)
-          AND ($doc_id IS NULL OR coalesce(d.doc_id, d.id, d.fileName, d.file_name) = $doc_id)
-          AND ($file_name IS NULL OR coalesce(d.fileName, d.file_name, d.name) = $file_name)
+          AND ($doc_id IS NULL OR coalesce(d.doc_id, d.id, d.fileName, dp['file_name']) = $doc_id)
+          AND ($file_name IS NULL OR coalesce(d.fileName, dp['file_name'], d.name) = $file_name)
         MATCH (d)<-[:PART_OF]-(c1:Chunk)-[:HAS_ENTITY]->(s)-[r]->(t)<-[:HAS_ENTITY]-(c2:Chunk)-[:PART_OF]->(d)
+        WITH d, dp, c1, c2, s, t, r, properties(s) AS sp, properties(t) AS tp
         WHERE NOT type(r) IN $structural_rel_types
           AND ($relation_types = [] OR toUpper(type(r)) IN $relation_types)
         RETURN DISTINCT
-          coalesce(d.doc_id, d.id, d.fileName, d.file_name) AS doc_id,
-          coalesce(d.fileName, d.file_name, d.name) AS file_name,
+          coalesce(d.doc_id, d.id, d.fileName, dp['file_name']) AS doc_id,
+          coalesce(d.fileName, dp['file_name'], d.name) AS file_name,
           coalesce(d.kg_scope, 'instance') AS kg_scope,
           d.kg_id AS kg_id,
-          coalesce(s.node_id, s.id, s.uuid, s.name, s.text, s.value, elementId(s)) AS source_node_id,
-          coalesce(s.name, s.text, s.value, s.id, s.node_id, elementId(s)) AS source_text,
-          coalesce(s.layer, s.layer_type, s.ctp_layer, s.stage, s.role, head(labels(s))) AS source_layer,
+          coalesce(sp['node_id'], s.id, sp['uuid'], s.name, s.text, sp['value'], elementId(s)) AS source_node_id,
+          coalesce(s.name, s.text, sp['value'], s.id, sp['node_id'], elementId(s)) AS source_text,
+          coalesce(sp['layer'], sp['layer_type'], sp['ctp_layer'], sp['stage'], sp['role'], head(labels(s))) AS source_layer,
           labels(s) AS source_labels,
-          properties(s) AS source_props,
-          coalesce(t.node_id, t.id, t.uuid, t.name, t.text, t.value, elementId(t)) AS target_node_id,
-          coalesce(t.name, t.text, t.value, t.id, t.node_id, elementId(t)) AS target_text,
-          coalesce(t.layer, t.layer_type, t.ctp_layer, t.stage, t.role, head(labels(t))) AS target_layer,
+          sp AS source_props,
+          coalesce(tp['node_id'], t.id, tp['uuid'], t.name, t.text, tp['value'], elementId(t)) AS target_node_id,
+          coalesce(t.name, t.text, tp['value'], t.id, tp['node_id'], elementId(t)) AS target_text,
+          coalesce(tp['layer'], tp['layer_type'], tp['ctp_layer'], tp['stage'], tp['role'], head(labels(t))) AS target_layer,
           labels(t) AS target_labels,
-          properties(t) AS target_props,
+          tp AS target_props,
           type(r) AS relation_type,
           properties(r) AS rel_props,
-          coalesce(c1.chunk_id, c1.id, c1.uuid, elementId(c1)) AS source_chunk_id,
+          coalesce(properties(c1)['chunk_id'], c1.id, properties(c1)['uuid'], elementId(c1)) AS source_chunk_id,
           c1.position AS source_chunk_pos,
-          coalesce(c2.chunk_id, c2.id, c2.uuid, elementId(c2)) AS target_chunk_id,
+          coalesce(properties(c2)['chunk_id'], c2.id, properties(c2)['uuid'], elementId(c2)) AS target_chunk_id,
           c2.position AS target_chunk_pos
         ORDER BY file_name, relation_type, source_text, target_text
         """

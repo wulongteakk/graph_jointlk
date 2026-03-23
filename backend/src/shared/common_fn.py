@@ -66,18 +66,21 @@ def get_chunk_and_graphDocument(graph_documents, chunkId_chunkDoc_list):
 
     for graph_document in graph_documents:
         try:
-            # 1. 'graph_document.source' 是我们传入的原始 chunk Document
-            # 2. 它的 metadata 包含 'chunk_id' (在 make_relationships.py 中添加)
-            chunk_id = graph_document.source.metadata['id']
-
-            # 3. 下游函数 (merge_relationship_between_chunk_and_entites) 期望一个 *列表*
-            chunk_id_list = [chunk_id]
+            metadata = graph_document.source.metadata if graph_document.source and graph_document.source.metadata else {}
+            combined_chunk_ids = metadata.get("combined_chunk_ids")
+            if combined_chunk_ids:
+                chunk_id_list = combined_chunk_ids if isinstance(combined_chunk_ids, list) else [combined_chunk_ids]
+            else:
+                chunk_id = metadata.get('id')
+                if not chunk_id:
+                    raise KeyError("id")
+                chunk_id_list = [chunk_id]
 
             chunks_and_graphDocuments_list.append((chunk_id_list, graph_document))
 
         except KeyError:
             logging.warning(
-                f"KeyError: 'chunk_id' not found in graph_document.source.metadata. Metadata received: {graph_document.source.metadata}")
+                f"KeyError: neither 'combined_chunk_ids' nor 'id' found in graph_document.source.metadata. Metadata received: {graph_document.source.metadata}")
         except Exception as e:
             logging.error(f"Error processing graph_document in get_chunk_and_graphDocument: {e}")
 

@@ -34,7 +34,7 @@ class graphDBdataAccess:
 
             self.graph.query(
                 """
-                MERGE (d:Document {doc_id: $doc_id})
+                MERGE (d:SourceDocument:Document {doc_id: $doc_id})
                 SET d.fileName = $fn,
                     d.kg_scope = $kg_scope,
                     d.kg_id = $kg_id,
@@ -143,7 +143,7 @@ class graphDBdataAccess:
                 params["processed_chunk"] = obj_source_node.processed_chunk
 
             param = {"props": params}
-            query = "MERGE (d:Document {doc_id: $props.doc_id}) SET d += $props"
+            query = "MERGE (d:SourceDocument:Document {doc_id: $props.doc_id}) SET d += $props"
             logging.info("Update scoped source node properties")
             self.graph.query(query, param)
         except Exception as e:
@@ -174,7 +174,7 @@ class graphDBdataAccess:
 
             self.graph.query(
                 """
-                MERGE (d:Document {doc_id: $doc_id})
+                MERGE (d:SourceDocument:Document {doc_id: $doc_id})
                 SET d.status = $status,
                     d.errorMessage = $error_msg
                 """,
@@ -207,7 +207,7 @@ class graphDBdataAccess:
         try:
             job_status = "New"
             logging.info("creating source node if does not exist")
-            self.graph.query("""MERGE(d:Document {fileName :$fn}) SET d.fileSize = $fs, d.fileType = $ft ,
+            self.graph.query("""MERGE(d:SourceDocument:Document {fileName :$fn}) SET d.fileSize = $fs, d.fileType = $ft ,
                             d.status = $st, d.url = $url, d.awsAccessKeyId = $awsacc_key_id, 
                             d.fileSource = $f_source, d.createdAt = $c_at, d.updatedAt = $u_at, 
                             d.processingTime = $pt, d.errorMessage = $e_message, d.nodeCount= $n_count, 
@@ -271,7 +271,7 @@ class graphDBdataAccess:
             param= {"props":params}
 
             print(f'Base Param value 1 : {param}')
-            query = "MERGE(d:Document {fileName :$props.fileName}) SET d += $props"
+            query = "MERGE(d:SourceDocument:Document {fileName :$props.fileName}) SET d += $props"
             logging.info("Update source node properties")
             self.graph.query(query,param)
         except Exception as e:
@@ -296,6 +296,7 @@ class graphDBdataAccess:
         query = """
         MATCH (d:Document)
         WHERE d.fileName IS NOT NULL
+            AND (d:SourceDocument OR exists { (d)<-[:PART_OF]-(:Chunk) })
         WITH d.fileName AS file_name, collect(d) AS docs
         WITH file_name,
              reduce(best = head(docs), item IN tail(docs) |
@@ -349,7 +350,7 @@ class graphDBdataAccess:
 
     def get_current_status_document_node(self, file_name):
         query = """
-                MATCH(d:Document {fileName : $file_name})
+                MATCH(d:SourceDocument:Document {fileName : $file_name})
                 WITH d
                 ORDER BY coalesce(d.updatedAt, d.createdAt) DESC
                 LIMIT 1
@@ -376,7 +377,7 @@ class graphDBdataAccess:
                 logging.info(f'Deleted File Path: {merged_file_path} and Deleted File Name : {file_name}')
                 delete_uploaded_local_file(merged_file_path,file_name)
         query_to_delete_document=""" 
-           MATCH (d:Document) where d.fileName in $filename_list and d.fileSource in $source_types_list
+           MATCH (d:SourceDocument:Document) where d.fileName in $filename_list and d.fileSource in $source_types_list
             with collect(d) as documents 
             unwind documents as d
             optional match (d)<-[:PART_OF]-(c:Chunk) 
@@ -384,7 +385,7 @@ class graphDBdataAccess:
             return count(*) as deletedChunks
             """
         query_to_delete_document_and_entities=""" 
-            MATCH (d:Document) where d.fileName in $filename_list and d.fileSource in $source_types_list
+            MATCH (d:SourceDocument:Document) where d.fileName in $filename_list and d.fileSource in $source_types_list
             with collect(d) as documents 
             unwind documents as d
             optional match (d)<-[:PART_OF]-(c:Chunk)
