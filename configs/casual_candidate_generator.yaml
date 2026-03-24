@@ -1,0 +1,19 @@
+enabled: true
+max_implicit_edges_per_doc: 300
+lexical_match_threshold: 0.24
+adjacent_unit_window: 1
+
+rules:
+  same_unit: true
+  adjacent_unit: true
+  temporal_precedes: true
+
+relation_mapping:
+  same_unit: POTENTIAL_CAUSE
+  adjacent_unit: POTENTIAL_ENABLE
+  temporal_precedes: PRECEDES
+
+trigger_words:
+  cause: ["导致", "引发", "造成", "致使", "because", "caused", "leads to", "result in"]
+  enable: ["促使", "使得", "加剧", "enable", "enables", "allows"]
+  precedes: ["随后", "之后", "先", "后", "then", "after", "followed by"]

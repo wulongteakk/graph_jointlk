@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from .candidate_generator import CandidateGenerator, CandidateGeneratorConfig
 from .neo4j_accessor import CandidateEdge, Neo4jAccessor
 from .pseudo_labeler import (
     CausalPseudoLabeler,
@@ -334,6 +335,7 @@ class AutoPseudoPipelineConfig:
     max_units_per_doc_scan: int = 500
     lexical_top_k: int = 5
     include_chunk_fallback: bool = True
+    candidate_generator_config_path: str = "configs/casual_candidate_generator.yaml"
     review_sample_size: int = 200
     review_per_doc_cap: int = 200
     review_per_rule_cap: int = 50
@@ -363,6 +365,7 @@ class AutoPseudoPipelineConfig:
             max_units_per_doc_scan=_get_int("AUTO_PSEUDO_LABEL_MAX_UNITS_PER_DOC_SCAN", 500) or 500,
             lexical_top_k=_get_int("AUTO_PSEUDO_LABEL_LEXICAL_TOP_K", 5) or 5,
             include_chunk_fallback=_get_bool("AUTO_PSEUDO_LABEL_INCLUDE_CHUNK_FALLBACK", True),
+            candidate_generator_config_path=os.getenv("AUTO_PSEUDO_LABEL_CANDIDATE_GENERATOR_CONFIG", "configs/casual_candidate_generator.yaml"),
             review_sample_size=_get_int("AUTO_PSEUDO_LABEL_REVIEW_SAMPLE_SIZE", 200) or 200,
             review_per_doc_cap=_get_int("AUTO_PSEUDO_LABEL_REVIEW_PER_DOC_CAP", 200) or 200,
             review_per_rule_cap=_get_int("AUTO_PSEUDO_LABEL_REVIEW_PER_RULE_CAP", 50) or 50,
@@ -516,19 +519,22 @@ def run_pseudo_label_pipeline_for_doc(
     accessor = Neo4jAccessor(graph)
     labeler = CausalPseudoLabeler(merged_cfg)
 
-    doc_edges = accessor.get_doc_candidate_edges(
+    unit_rows, unit_by_id, chunk_by_id = read_doc_evidence_units(
+        store,
+        file_name=file_name,
+        max_units=cfg.max_units_per_doc_scan,
+    )
+
+    candidate_gen_cfg_raw = load_yaml_file(cfg.candidate_generator_config_path) if cfg.candidate_generator_config_path and os.path.exists(cfg.candidate_generator_config_path) else {}
+    candidate_generator = CandidateGenerator(accessor, CandidateGeneratorConfig(**(candidate_gen_cfg_raw or {})))
+    doc_edges, candidate_stats = candidate_generator.generate_for_doc(
         doc_id=doc_id,
         file_name=file_name,
         kg_scope=kg_scope or "instance",
         kg_id=kg_id,
         relation_types=None,
         limit=cfg.max_edges_per_doc,
-    )
-
-    unit_rows, unit_by_id, chunk_by_id = read_doc_evidence_units(
-        store,
-        file_name=file_name,
-        max_units=cfg.max_units_per_doc_scan,
+        unit_rows=unit_rows,
     )
 
     label_rows: List[Dict[str, Any]] = []
@@ -622,9 +628,11 @@ def run_pseudo_label_pipeline_for_doc(
             "num_candidate_edges": len(doc_edges),
             "num_evidence_units_scanned": len(unit_rows),
             "ambiguous_edges": ambiguous,
+            "candidate_generation": candidate_stats,
             "configs": {
                 "prior_config": cfg.prior_config_path,
                 "pseudo_rule_config": cfg.pseudo_rule_config_path,
+                "candidate_generator_config": cfg.candidate_generator_config_path,
             },
         },
     )

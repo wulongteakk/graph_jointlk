@@ -98,12 +98,14 @@ export const getSize = (node: any) => {
 };
 
 export const getNodeCaption = (node: any) => {
+
+  if (node.labels?.[0] === 'Chunk') {
+    return node.properties.chunkId || node.properties.id || node.properties.orig_id || 'Chunk';
+  }
   if (node.properties.name) {
     return node.properties.name;
   }
-  if (node.properties.text) {
-    return node.properties.text;
-  }
+
   if (node.properties.fileName) {
     return node.properties.fileName;
   }
@@ -111,7 +113,10 @@ export const getNodeCaption = (node: any) => {
   if (node.properties.orig_id) {
     return node.properties.orig_id;
   }
-  return node.properties.id;
+    if (node.properties.id) {
+    return node.properties.id;
+  }
+  return node.labels?.[0] || 'Node';
 };
 
 export const getIcon = (node: any) => {
@@ -135,16 +140,22 @@ export function extractPdfFileName(url: string): string {
 }
 
 export const processGraphData = (neoNodes: Node[], neoRels: Relationship[]) => {
+
+  const visibleNodes = neoNodes.filter((node: any) => !(node.labels || []).includes('EvidenceUnit'));
+  const visibleNodeIds = new Set(visibleNodes.map((node: any) => node.element_id));
+  const visibleRels = neoRels.filter(
+    (rel: any) => visibleNodeIds.has(rel.start_node_element_id) && visibleNodeIds.has(rel.end_node_element_id)
+  );
   const schemeVal: Scheme = {};
-  let iterator = 0;
-  const labels: string[] = neoNodes.map((f: any) => f.labels);
+
+  const labels: string[] = visibleNodes.map((f: any) => f.labels);
   labels.forEach((label: any) => {
     if (schemeVal[label] == undefined) {
       schemeVal[label] = calcWordColor(label[0]);
-      iterator += 1;
+
     }
   });
-  const newNodes: Node[] = neoNodes.map((g: any) => {
+  const newNodes: Node[] = visibleNodes.map((g: any) => {
     return {
       id: g.element_id,
       size: getSize(g),
@@ -157,7 +168,7 @@ export const processGraphData = (neoNodes: Node[], neoRels: Relationship[]) => {
     };
   });
   const finalNodes = newNodes.flat();
-  const newRels: Relationship[] = neoRels.map((relations: any) => {
+  const newRels: Relationship[] = visibleRels.map((relations: any) => {
     return {
       id: relations.element_id,
       from: relations.start_node_element_id,

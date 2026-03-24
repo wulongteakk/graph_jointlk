@@ -172,3 +172,111 @@ class Neo4jAccessor:
                 )
             )
         return out
+
+    def get_doc_entity_mentions(
+        self,
+        *,
+        doc_id: Optional[str] = None,
+        file_name: Optional[str] = None,
+        kg_scope: str = "instance",
+        kg_id: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        query = """
+        MATCH (d:SourceDocument:Document)
+        WITH d, properties(d) AS dp
+        WHERE ($kg_scope IS NULL OR coalesce(d.kg_scope, 'instance') = $kg_scope)
+          AND ($kg_id IS NULL OR d.kg_id = $kg_id)
+          AND ($doc_id IS NULL OR coalesce(d.doc_id, d.id, d.fileName, dp['file_name']) = $doc_id)
+          AND ($file_name IS NULL OR coalesce(d.fileName, dp['file_name'], d.name) = $file_name)
+        MATCH (d)<-[:PART_OF]-(c:Chunk)-[:HAS_ENTITY]->(n)
+        WITH d, dp, c, n, properties(n) AS np
+        RETURN DISTINCT
+          coalesce(d.doc_id, d.id, d.fileName, dp['file_name']) AS doc_id,
+          coalesce(d.fileName, dp['file_name'], d.name) AS file_name,
+          coalesce(d.kg_scope, 'instance') AS kg_scope,
+          d.kg_id AS kg_id,
+          coalesce(np['node_id'], n.id, np['uuid'], n.name, n.text, np['value'], elementId(n)) AS node_id,
+          coalesce(n.name, n.text, np['value'], n.id, np['node_id'], elementId(n)) AS node_text,
+          coalesce(np['layer'], np['layer_type'], np['ctp_layer'], np['stage'], np['role'], head(labels(n))) AS node_layer,
+          labels(n) AS node_labels,
+          np AS node_props,
+          coalesce(properties(c)['chunk_id'], c.id, properties(c)['uuid'], elementId(c)) AS chunk_id,
+          c.position AS chunk_pos
+        ORDER BY file_name, chunk_pos, node_text
+        """
+        rows = self._run(
+            query,
+            {
+                "kg_scope": kg_scope,
+                "kg_id": kg_id,
+                "doc_id": doc_id,
+                "file_name": file_name,
+            },
+        )
+        if limit is not None:
+            rows = rows[: int(limit)]
+        return [dict(row) for row in rows]
+
+    def upsert_implicit_candidate_edges(
+        self,
+        *,
+        edges: Sequence[CandidateEdge],
+        doc_id: Optional[str],
+        file_name: Optional[str],
+        kg_scope: str = "instance",
+        kg_id: Optional[str] = None,
+    ) -> int:
+        payload: List[Dict[str, Any]] = []
+        for edge in edges:
+            rel = str(edge.relation_type or "").upper()
+            if rel not in {"POTENTIAL_CAUSE", "POTENTIAL_ENABLE", "PRECEDES"}:
+                continue
+            payload.append(
+                {
+                    "source_node_id": str(edge.source_node_id),
+                    "target_node_id": str(edge.target_node_id),
+                    "relation_type": rel,
+                    "props": dict(edge.rel_props or {}),
+                }
+            )
+        if not payload:
+            return 0
+
+        query = """
+        MATCH (d:SourceDocument:Document)
+        WITH d, properties(d) AS dp
+        WHERE ($kg_scope IS NULL OR coalesce(d.kg_scope, 'instance') = $kg_scope)
+          AND ($kg_id IS NULL OR d.kg_id = $kg_id)
+          AND ($doc_id IS NULL OR coalesce(d.doc_id, d.id, d.fileName, dp['file_name']) = $doc_id)
+          AND ($file_name IS NULL OR coalesce(d.fileName, dp['file_name'], d.name) = $file_name)
+        UNWIND $rows AS row
+        MATCH (d)<-[:PART_OF]-(:Chunk)-[:HAS_ENTITY]->(s)
+        WHERE coalesce(properties(s)['node_id'], s.id, properties(s)['uuid'], s.name, s.text, properties(s)['value'], elementId(s)) = row.source_node_id
+        MATCH (d)<-[:PART_OF]-(:Chunk)-[:HAS_ENTITY]->(t)
+        WHERE coalesce(properties(t)['node_id'], t.id, properties(t)['uuid'], t.name, t.text, properties(t)['value'], elementId(t)) = row.target_node_id
+        FOREACH (_ IN CASE WHEN row.relation_type = 'POTENTIAL_CAUSE' THEN [1] ELSE [] END |
+            MERGE (s)-[r:POTENTIAL_CAUSE]->(t)
+            SET r += row.props, r.candidate_source='implicit', r.candidate_persisted=true
+        )
+        FOREACH (_ IN CASE WHEN row.relation_type = 'POTENTIAL_ENABLE' THEN [1] ELSE [] END |
+            MERGE (s)-[r:POTENTIAL_ENABLE]->(t)
+            SET r += row.props, r.candidate_source='implicit', r.candidate_persisted=true
+        )
+        FOREACH (_ IN CASE WHEN row.relation_type = 'PRECEDES' THEN [1] ELSE [] END |
+            MERGE (s)-[r:PRECEDES]->(t)
+            SET r += row.props, r.candidate_source='implicit', r.candidate_persisted=true
+        )
+        RETURN count(*) AS persisted
+        """
+        rows = self._run(
+            query,
+            {
+                "kg_scope": kg_scope,
+                "kg_id": kg_id,
+                "doc_id": doc_id,
+                "file_name": file_name,
+                "rows": payload,
+            },
+        )
+        return int((rows[0] or {}).get("persisted") or 0) if rows else 0

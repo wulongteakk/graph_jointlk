@@ -5,6 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="新版知识图谱修复1.0">
+      <change afterPath="$PROJECT_DIR$/backend/causal_jointlk/candidate_generator.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/configs/casual_candidate_generator.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
@@ -21,12 +23,10 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/neo4j_accessor.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/neo4j_accessor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graphDB_dataAccess.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graph_export.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_export.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/graph_query.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/graph_query.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/make_relationships.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/make_relationships.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/shared/common_fn.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/shared/common_fn.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_labeler.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_labeler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_pipeline.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/utils/Utils.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/utils/Utils.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -411,7 +411,15 @@
       <option name="project" value="LOCAL" />
       <updated>1774273762390</updated>
     </task>
-    <option name="localTasksCounter" value="19" />
+    <task id="LOCAL-00019" summary="新版知识图谱修复1.0">
+      <option name="closed" value="true" />
+      <created>1774280757577</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1774280757577</updated>
+    </task>
+    <option name="localTasksCounter" value="20" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

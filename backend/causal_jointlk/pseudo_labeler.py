@@ -294,7 +294,11 @@ class CausalPseudoLabeler:
         rel_props = rel_props or {}
         evidence_units = list(evidence_units or [])
         relation_type_u = str(relation_type or "").strip().upper() or None
-        relation_whitelist_hit = bool(relation_type_u and relation_type_u in self.relation_whitelist)
+        normalized_rel = relation_type_u[len("POTENTIAL_"):] if relation_type_u and relation_type_u.startswith("POTENTIAL_") else relation_type_u
+        relation_whitelist_hit = bool(
+            (relation_type_u and relation_type_u in self.relation_whitelist)
+            or (normalized_rel and normalized_rel in self.relation_whitelist)
+        )
         transition_allowed = self._transition_allowed(source_layer, target_layer)
         rel_prop_conf = relation_confidence_from_props(rel_props)
         overlap = lexical_overlap(source_text, target_text)

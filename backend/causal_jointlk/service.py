@@ -1,7 +1,9 @@
+import os
 import uuid
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Sequence
 from .baseline_extractor import BaselineCausalExtractor
+from .candidate_generator import CandidateGenerator, CandidateGeneratorConfig
 from .beam_search import BeamSearchChainBuilder
 from .joint_edge_scorer import CausalJointLKEdgeScorer
 from .neo4j_accessor import Neo4jAccessor
@@ -24,6 +26,18 @@ class CausalJointLKService:
         self.baseline = BaselineCausalExtractor(self.prior)
         self.chain_builder = BeamSearchChainBuilder(self.prior)
         self.neural_scorer = None
+        cfg_path = os.getenv("AUTO_PSEUDO_LABEL_CANDIDATE_GENERATOR_CONFIG", "configs/casual_candidate_generator.yaml")
+        cfg_raw = {}
+        if cfg_path and os.path.exists(cfg_path):
+            try:
+                import yaml  # type: ignore
+
+                with open(cfg_path, "r", encoding="utf-8") as fh:
+                    cfg_raw = yaml.safe_load(fh) or {}
+            except Exception:
+                cfg_raw = {}
+        self.candidate_generator = CandidateGenerator(self.accessor, CandidateGeneratorConfig(**cfg_raw))
+        self.persist_implicit_candidates = str(os.getenv("JOINTLK_PERSIST_IMPLICIT_CANDIDATES", "true")).strip().lower() not in {"0", "false", "no", "off"}
         if jointlk_checkpoint_path:
             self.neural_scorer = CausalJointLKEdgeScorer(
                 checkpoint_path=jointlk_checkpoint_path,
@@ -67,6 +81,30 @@ class CausalJointLKService:
         )
         nodes: List[CausalNode] = subgraph["nodes"]
         edges: List[CausalEdge] = self.accessor.hydrate_edge_evidence(self.evidence_store, subgraph["edges"])
+        implicit_stats = {
+            "generated_implicit_edges": 0,
+            "persisted_implicit_edges": 0,
+            "reloaded_after_persist": False,
+        }
+
+        if self.persist_implicit_candidates and doc_id:
+            implicit_stats = self._persist_implicit_candidates(
+                doc_id=doc_id,
+                kg_scope=kg_scope,
+                kg_id=kg_id,
+            )
+            if implicit_stats["persisted_implicit_edges"] > 0:
+                subgraph = self.accessor.get_k_hop_subgraph(
+                    seed_node_ids=seed_node_ids,
+                    prior=self.prior,
+                    k_hop=k_hop,
+                    doc_id=doc_id,
+                    kg_scope=kg_scope,
+                    kg_id=kg_id,
+                )
+                nodes = subgraph["nodes"]
+                edges = self.accessor.hydrate_edge_evidence(self.evidence_store, subgraph["edges"])
+                implicit_stats["reloaded_after_persist"] = True
 
         evidence_by_edge_id = self._build_evidence_map(edges)
 
@@ -111,6 +149,7 @@ class CausalJointLKService:
                 "num_edges": len(edges),
                 "num_supported_edges": sum(1 for e in scored_edges if e.supported),
                 "relation_hist": dict(Counter(e.relation for e in scored_edges)),
+                **implicit_stats,
             },
         )
 
@@ -118,6 +157,65 @@ class CausalJointLKService:
             self._persist_chains(result)
 
         return result
+
+    def _read_doc_evidence_units(self, doc_id: Optional[str]) -> List[Dict[str, Any]]:
+        if not doc_id:
+            return []
+        rows: List[Dict[str, Any]] = []
+        for chunk in self.evidence_store.list_chunks_for_file(doc_id):
+            for unit in self.evidence_store.list_units_for_parent(chunk.evidence_id):
+                rows.append(
+                    {
+                        "unit_id": unit.unit_id,
+                        "parent_evidence_id": unit.parent_evidence_id,
+                        "content": unit.content,
+                        "unit_kind": unit.unit_kind,
+                        "start_char": unit.start_char,
+                        "end_char": unit.end_char,
+                        "meta": unit.meta,
+                    }
+                )
+        return rows
+
+    def _persist_implicit_candidates(
+        self,
+        *,
+        doc_id: str,
+        kg_scope: str,
+        kg_id: Optional[str],
+    ) -> Dict[str, Any]:
+        unit_rows = self._read_doc_evidence_units(doc_id)
+        if not unit_rows:
+            return {
+                "generated_implicit_edges": 0,
+                "persisted_implicit_edges": 0,
+                "reloaded_after_persist": False,
+            }
+
+        merged_edges, _ = self.candidate_generator.generate_for_doc(
+            doc_id=doc_id,
+            file_name=doc_id,
+            kg_scope=kg_scope,
+            kg_id=kg_id,
+            relation_types=None,
+            limit=None,
+            unit_rows=unit_rows,
+        )
+        implicit_edges = [edge for edge in merged_edges if edge.rel_props.get("candidate_source") == "implicit"]
+        persisted = 0
+        if implicit_edges:
+            persisted = self.accessor.upsert_implicit_candidate_edges(
+                edges=implicit_edges,
+                doc_id=doc_id,
+                file_name=doc_id,
+                kg_scope=kg_scope,
+                kg_id=kg_id,
+            )
+        return {
+            "generated_implicit_edges": len(implicit_edges),
+            "persisted_implicit_edges": int(persisted),
+            "reloaded_after_persist": False,
+        }
 
     def _build_evidence_map(self, edges: Sequence[CausalEdge]) -> Dict[str, List[Dict[str, Any]]]:
         evidence_by_edge_id: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
