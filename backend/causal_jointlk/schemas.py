@@ -27,6 +27,12 @@ class CausalNode:
     module_id: Optional[str] = None
     event_stage: Optional[str] = None
     is_main_chain_candidate: Optional[bool] = None
+    canonical_type: Optional[str] = None
+    temporal_rank: Optional[float] = None
+    severity_signals: Dict[str, float] = field(default_factory=dict)
+    p_node_first: Optional[float] = None
+    silver_node_first: Optional[int] = None
+    first_conf: Optional[float] = None
 
 
 @dataclass
@@ -47,6 +53,19 @@ class CausalEdge:
     score: float = 0.0
     supported: bool = False
     support_score: float = 0.0
+    p_causal: Optional[float] = None
+    p_enable: Optional[float] = None
+    p_dir: Optional[float] = None
+    p_temporal_before: Optional[float] = None
+    p_evidence: Optional[float] = None
+    p_node_first: Optional[float] = None
+    silver_edge_causal: Optional[int] = None
+    silver_edge_enable: Optional[int] = None
+    silver_causal_dir: Optional[int] = None
+    silver_temporal_before: Optional[int] = None
+    sample_weight: float = 1.0
+    twin_group_id: Optional[str] = None
+    label_source: Optional[str] = None
     meta: Dict[str, Any] = field(default_factory=dict)
 
 

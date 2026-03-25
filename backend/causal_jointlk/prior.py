@@ -98,6 +98,13 @@ class CausalPrior:
     def as_evidence_params(self) -> Dict[str, Any]:
         return dict(self.config.get("evidence_gate") or {})
 
+    def canonical_layer(self, raw_layer: Optional[str]) -> str:
+        layer = str(raw_layer or "UNK").upper()
+        return self.accident_layer_mapping.get(layer, layer)
+
+    def as_counterfactual_params(self) -> Dict[str, Any]:
+        return dict(self.counterfactual_rules)
+
 
 def normalize_name(text: Optional[str]) -> str:
     text = (text or "").strip().lower()

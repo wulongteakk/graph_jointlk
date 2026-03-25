@@ -36,7 +36,14 @@ class CausalEdgeDataset(Dataset):
       "target_text": "...",
       "candidate_relation": "CAUSES",
       "gold_relation": "CAUSES",
-      "label": 1,
+      "label": 1,  # fallback 主任务
+      "causal_labels": 1,
+      "enable_labels": 0/1/-1,
+      "dir_labels": 0/1/-1,
+      "temp_labels": 0/1/-1,
+      "src_first_labels": 0/1/-1,
+      "dst_first_labels": 0/1/-1,
+      "causal_mask": 0/1, ...
       "label_source": "gold_chain|pseudo_review_accepted|pseudo_pending",
       "review_status": "pending|accepted|edited|rejected",
       "label_confidence": 0.97,
@@ -111,6 +118,23 @@ class CausalEdgeDataset(Dataset):
 
                 if "sample_weight" not in obj:
                     obj["sample_weight"] = self._derive_sample_weight(obj)
+
+                rows.append(obj)
+                if "sample_weight" not in obj:
+                    obj["sample_weight"] = self._derive_sample_weight(obj)
+                obj.setdefault("twin_group_id", obj.get("twin_group_id"))
+                obj.setdefault("causal_labels", obj.get("silver_edge_causal", obj.get("label", -1)))
+                obj.setdefault("enable_labels", obj.get("silver_edge_enable", -1))
+                obj.setdefault("dir_labels", obj.get("silver_causal_dir", -1))
+                obj.setdefault("temp_labels", obj.get("silver_temporal_before", -1))
+                obj.setdefault("src_first_labels", obj.get("silver_node_first_src", -1))
+                obj.setdefault("dst_first_labels", obj.get("silver_node_first_dst", -1))
+                obj.setdefault("causal_mask", 0 if int(obj.get("causal_labels", -1)) < 0 else 1)
+                obj.setdefault("enable_mask", 0 if int(obj.get("enable_labels", -1)) < 0 else 1)
+                obj.setdefault("dir_mask", 0 if int(obj.get("dir_labels", -1)) < 0 else 1)
+                obj.setdefault("temp_mask", 0 if int(obj.get("temp_labels", -1)) < 0 else 1)
+                obj.setdefault("src_first_mask", 0 if int(obj.get("src_first_labels", -1)) < 0 else 1)
+                obj.setdefault("dst_first_mask", 0 if int(obj.get("dst_first_labels", -1)) < 0 else 1)
 
                 rows.append(obj)
         return rows

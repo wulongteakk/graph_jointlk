@@ -121,15 +121,53 @@ def maybe_run_auto_pseudo_label_pipeline(graph, *, file_name: str, doc_id: str, 
     if preview_rows:
         logging.info("[pseudo-label][preview] top %s rows for file=%s", len(preview_rows), file_name)
         for idx, row in enumerate(preview_rows, start=1):
+            # 兼容旧版单标签字段与新版多任务字段。
+            legacy_label = row.get("label")
+            legacy_conf = float(row.get("confidence") or 0.0)
+            legacy_rule = (row.get("rule_hits") or {}).get("primary_rule") or "-"
+
+            causal_label = row.get("silver_edge_causal", legacy_label)
+            causal_conf = float(row.get("causal_conf") or legacy_conf)
+            enable_label = row.get("silver_edge_enable")
+            enable_conf = float(row.get("enable_conf") or 0.0)
+            dir_label = row.get("silver_causal_dir")
+            dir_conf = float(row.get("dir_conf") or 0.0)
+            temp_label = row.get("silver_temporal_before")
+            temp_conf = float(row.get("temporal_conf") or 0.0)
+            src_first_label = row.get("silver_node_first_src")
+            src_first_conf = float(row.get("src_first_conf") or 0.0)
+            dst_first_label = row.get("silver_node_first_dst")
+            dst_first_conf = float(row.get("dst_first_conf") or 0.0)
+
             logging.info(
-                "[pseudo-label][preview #%s] %s --%s--> %s | label=%s | conf=%.3f | rule=%s",
+                "[pseudo-label][preview #%s] %s --%s--> %s | "
+                "silver_edge_causal=%s(causal_conf=%.3f) "
+                "silver_edge_enable=%s(enable_conf=%.3f) "
+                "silver_causal_dir=%s(dir_conf=%.3f) "
+                "silver_temporal_before=%s(temporal_conf=%.3f) "
+                "silver_node_first_src=%s(src_first_conf=%.3f) "
+                "silver_node_first_dst=%s(dst_first_conf=%.3f) "
+                "sample_weight=%.3f twin_group_id=%s review_status=%s | rule=%s",
                 idx,
                 _truncate_console_text(row.get("source_text")),
                 row.get("relation_type") or "?",
                 _truncate_console_text(row.get("target_text")),
-                row.get("label"),
-                float(row.get("confidence") or 0.0),
-                (row.get("rule_hits") or {}).get("primary_rule") or "-",
+                causal_label,
+                causal_conf,
+                enable_label,
+                enable_conf,
+                dir_label,
+                dir_conf,
+                temp_label,
+                temp_conf,
+                src_first_label,
+                src_first_conf,
+                dst_first_label,
+                dst_first_conf,
+                float(row.get("sample_weight") or 0.0),
+                row.get("twin_group_id"),
+                row.get("review_status") or "pending",
+                legacy_rule,
             )
     else:
         logging.info("[pseudo-label][preview] no pseudo-label generated for file=%s", file_name)

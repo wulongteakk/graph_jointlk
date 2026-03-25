@@ -14,14 +14,16 @@ Recommended identifiers
 - doc_id  = f"{kg_scope}|{kg_id}|{file_name_clean}"
 - chunk_id = f"{doc_id}|{sha1(text)}"  (keeps Chunk/Evidence ids unique per doc)
 
-Entity uid strategy (important!)
---------------------------------
-To avoid Instance-KG entities from merging across documents, we scope entity IDs
-by doc_id when kg_scope == 'inst'. For BG-KG, we scope by (kg_scope, kg_id)
-so background entities can merge across background documents.
 
-This is intentionally a *minimal* strategy: it changes only IDs/properties,
-while keeping the existing upload/extract flow.
+Entity uid strategy
+-------------------
+Current default is to keep **plain local entity ids** (no kg/doc namespace
+prefix in `node.id`) so graph entities are cleaner for downstream preview and
+pseudo-label rules. We still preserve `kg_scope/kg_id/doc_id` in properties.
+␊
+If you need the old namespaced IDs, set env:
+`KG_ENTITY_UID_WITH_NAMESPACE=true`.
+
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ class KGContext:
     kg_scope: str
     kg_id: str
     file_name: str
+    entity_uid_with_namespace: bool = False
 
     @property
     def file_name_clean(self) -> str:
@@ -54,7 +57,9 @@ class KGContext:
     def entity_uid(self, local_id: str) -> str:
         """Return the Neo4j MERGE key used by entity nodes."""
         local = _clean_part(local_id)
-        return f"{self.doc_id}|{local}"
+        if self.entity_uid_with_namespace:
+            return f"{self.doc_id}|{local}"
+        return local
 
     def chunk_uid(self, chunk_hash: str) -> str:
         return f"{self.doc_id}|{_clean_part(chunk_hash)}"
@@ -72,7 +77,12 @@ def build_kg_context(
     # flows, but the backend now treats everything as one shared KG.
     scope = default_scope
     kid = default_kg_id
-    return KGContext(kg_scope=scope, kg_id=kid, file_name=file_name)
+    import os
+
+    with_ns = str(os.getenv("KG_ENTITY_UID_WITH_NAMESPACE", "false")).strip().lower() in {"1", "true", "yes", "on"}
+    return KGContext(kg_scope=scope, kg_id=kid, file_name=file_name, entity_uid_with_namespace=with_ns)
+
+
 
 
 def scope_graph_documents(graph_documents: List[Any], ctx: KGContext) -> List[Any]:

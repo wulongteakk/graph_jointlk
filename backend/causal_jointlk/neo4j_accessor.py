@@ -25,6 +25,7 @@ class CandidateEdge:
     target_props: Dict[str, Any]
     relation_type: str
     rel_props: Dict[str, Any]
+    evidence_text: Optional[str]
     source_chunk_id: Optional[str]
     source_chunk_pos: Optional[int]
     target_chunk_id: Optional[str]
@@ -125,6 +126,13 @@ class Neo4jAccessor:
           tp AS target_props,
           type(r) AS relation_type,
           properties(r) AS rel_props,
+          coalesce(
+            properties(r)['evidence_text'],
+            properties(r)['support_text'],
+            properties(r)['text'],
+            properties(r)['evidence'],
+            properties(r)['summary']
+          ) AS evidence_text,
           coalesce(properties(c1)['chunk_id'], c1.id, properties(c1)['uuid'], elementId(c1)) AS source_chunk_id,
           c1.position AS source_chunk_pos,
           coalesce(properties(c2)['chunk_id'], c2.id, properties(c2)['uuid'], elementId(c2)) AS target_chunk_id,
@@ -165,6 +173,7 @@ class Neo4jAccessor:
                     target_props=dict(row.get("target_props") or {}),
                     relation_type=str(row.get("relation_type") or ""),
                     rel_props=dict(row.get("rel_props") or {}),
+                    evidence_text=row.get("evidence_text"),
                     source_chunk_id=row.get("source_chunk_id"),
                     source_chunk_pos=row.get("source_chunk_pos"),
                     target_chunk_id=row.get("target_chunk_id"),

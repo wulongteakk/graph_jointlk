@@ -10,12 +10,14 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .candidate_generator import CandidateGenerator, CandidateGeneratorConfig
+from .counterfactual_sampler import CounterfactualSampler
 from .neo4j_accessor import CandidateEdge, Neo4jAccessor
 from .pseudo_labeler import (
     CausalPseudoLabeler,
     lexical_overlap,
     load_yaml_file,
     merge_prior_and_pseudo_config,
+    relation_confidence_from_props,
 )
 from src.evidence_store.sqlite_store import EvidenceStore  # type: ignore
 
@@ -71,6 +73,49 @@ def relation_chunk_refs(rel_props: Dict[str, Any], edge: CandidateEdge) -> List[
     if edge.target_chunk_id:
         refs.append(str(edge.target_chunk_id))
     return list(dict.fromkeys(refs))
+
+
+def edge_dedup_key(edge: CandidateEdge) -> Tuple[str, str, str]:
+    return (
+        str(edge.source_node_id or "").strip(),
+        str(edge.relation_type or "").strip().upper(),
+        str(edge.target_node_id or "").strip(),
+    )
+
+
+def edge_quality_score(edge: CandidateEdge) -> float:
+    rel_props = edge.rel_props or {}
+    score = 0.0
+    score += relation_confidence_from_props(rel_props)
+    evidence_text = (
+        getattr(edge, "evidence_text", None)
+        or rel_props.get("evidence_text")
+        or rel_props.get("support_text")
+        or rel_props.get("text")
+    )
+    if evidence_text:
+        score += 0.1
+    if relation_unit_ids(rel_props):
+        score += 0.1
+    if edge.source_chunk_pos is not None and edge.target_chunk_pos is not None:
+        score += 0.05
+    return float(score)
+
+
+def deduplicate_candidate_edges(edges: Sequence[CandidateEdge]) -> Tuple[List[CandidateEdge], int]:
+    """Deduplicate repeated candidate edges by (src, rel, dst)."""
+    best_by_key: Dict[Tuple[str, str, str], CandidateEdge] = {}
+    dropped = 0
+    for edge in edges:
+        key = edge_dedup_key(edge)
+        prev = best_by_key.get(key)
+        if prev is None:
+            best_by_key[key] = edge
+            continue
+        if edge_quality_score(edge) > edge_quality_score(prev):
+            best_by_key[key] = edge
+        dropped += 1
+    return list(best_by_key.values()), dropped
 
 
 def retrieve_lexical_units(
@@ -229,19 +274,29 @@ def build_pseudo_label_record(
         "target_node_id": edge.target_node_id,
         "target_text": edge.target_text,
         "target_layer": edge.target_layer,
-        "relation_type": decision.relation_type or edge.relation_type,
-        "label": int(decision.label),
-        "confidence": float(decision.confidence),
+        "relation_type": edge.relation_type,
+        "silver_edge_causal": int(decision.silver_edge_causal),
+        "causal_conf": float(decision.causal_conf),
+        "silver_edge_enable": int(decision.silver_edge_enable),
+        "enable_conf": float(decision.enable_conf),
+        "silver_causal_dir": int(decision.silver_causal_dir),
+        "dir_conf": float(decision.dir_conf),
+        "silver_temporal_before": int(decision.silver_temporal_before),
+        "temporal_conf": float(decision.temporal_conf),
+        "silver_node_first_src": int(decision.silver_node_first_src),
+        "src_first_conf": float(decision.src_first_conf),
+        "silver_node_first_dst": int(decision.silver_node_first_dst),
+        "dst_first_conf": float(decision.dst_first_conf),
         "evidence_unit_id": decision.evidence_unit_id,
         "evidence_start": None,
         "evidence_end": None,
         "evidence_text": decision.evidence_text,
-        "rule_hits": {
-            "primary_rule": decision.primary_rule,
-            "hits": decision.rule_hits,
-        },
+        "rule_hits": decision.rule_hits,
         "features": decision.features,
-        "review_status": "pending",
+        "sample_weight": float(decision.sample_weight),
+        "twin_group_id": decision.twin_group_id,
+        "review_status": decision.review_status,
+        "label_source": "pseudo_multitask",
         "manual_label": None,
         "manual_relation_type": None,
         "manual_comment": None,
@@ -257,16 +312,16 @@ def choose_review_candidates(
 ) -> List[Dict[str, Any]]:
     by_group: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = defaultdict(list)
     for row in labels:
-        primary_rule = (row.get("rule_hits") or {}).get("primary_rule")
+        primary_rule = ((row.get("rule_hits") or {}).get("edge_causal") or [None])[0]
         key = (
-            row.get("label"),
+            row.get("silver_edge_causal"),
             primary_rule,
             row.get("relation_type"),
         )
         by_group[key].append(row)
 
     for rows in by_group.values():
-        rows.sort(key=lambda r: float(r.get("confidence") or 0.0))
+        rows.sort(key=lambda r: float(r.get("causal_conf") or 0.0))
 
     doc_used: Dict[str, int] = defaultdict(int)
     rule_used: Dict[str, int] = defaultdict(int)
@@ -323,13 +378,59 @@ def sanitize_fs_part(text: Optional[str]) -> str:
     return s[:160]
 
 
+def normalize_entity_surface(text: Optional[str]) -> str:
+    raw = str(text or "").strip().lower()
+    if "|" in raw:
+        raw = raw.split("|")[-1].strip()
+    raw = " ".join(raw.split())
+    return raw
+
+
+def is_trivial_or_self_edge(edge: CandidateEdge, *, text_overlap_threshold: float = 0.95) -> bool:
+    if str(edge.source_node_id or "") == str(edge.target_node_id or ""):
+        return True
+    src_norm = normalize_entity_surface(edge.source_text)
+    tgt_norm = normalize_entity_surface(edge.target_text)
+    if src_norm and tgt_norm and src_norm == tgt_norm:
+        return True
+    return lexical_overlap(src_norm, tgt_norm) >= float(text_overlap_threshold)
+
+
+def print_pseudo_label_rows_console(
+    rows: Sequence[Dict[str, Any]],
+    *,
+    limit: int = 20,
+) -> None:
+    """Print a compact multi-task pseudo-label preview to console."""
+    if not rows:
+        print("[pseudo-label] no rows generated.")
+        return
+    show_n = min(max(int(limit), 0), len(rows))
+    if show_n <= 0:
+        return
+    print(f"[pseudo-label] showing {show_n}/{len(rows)} generated edges:")
+    for idx, row in enumerate(rows[:show_n], start=1):
+        src = str(row.get("source_text") or row.get("source_node_id") or "")
+        rel = str(row.get("relation_type") or "")
+        tgt = str(row.get("target_text") or row.get("target_node_id") or "")
+        print(
+            f"  [{idx:03d}] {src} --{rel}--> {tgt} | "
+            f"causal={row.get('silver_edge_causal')}({float(row.get('causal_conf') or 0.0):.2f}) "
+            f"enable={row.get('silver_edge_enable')}({float(row.get('enable_conf') or 0.0):.2f}) "
+            f"dir={row.get('silver_causal_dir')}({float(row.get('dir_conf') or 0.0):.2f}) "
+            f"temp={row.get('silver_temporal_before')}({float(row.get('temporal_conf') or 0.0):.2f}) "
+            f"src_first={row.get('silver_node_first_src')}({float(row.get('src_first_conf') or 0.0):.2f}) "
+            f"dst_first={row.get('silver_node_first_dst')}({float(row.get('dst_first_conf') or 0.0):.2f})"
+        )
+
+
 @dataclass
 class AutoPseudoPipelineConfig:
     enabled: bool = True
     export_root: str = "./artifacts/manual_review"
     evidence_db_path: str = "./data/evidence_store.sqlite3"
-    prior_config_path: str = "configs/causal_prior.yaml"
-    pseudo_rule_config_path: str = "configs/causal_pseudo_label_rules.yaml"
+    prior_config_path: str = "configs/casual_prior.yaml"
+    pseudo_rule_config_path: str = "configs/casual_pseudo_labe_rules.yaml"
     store_ambiguous: bool = False
     max_edges_per_doc: Optional[int] = None
     max_units_per_doc_scan: int = 500
@@ -339,6 +440,8 @@ class AutoPseudoPipelineConfig:
     review_sample_size: int = 200
     review_per_doc_cap: int = 200
     review_per_rule_cap: int = 50
+    skip_trivial_edges: bool = True
+    trivial_edge_overlap_threshold: float = 0.95
 
     @classmethod
     def from_env(cls) -> "AutoPseudoPipelineConfig":
@@ -358,8 +461,8 @@ class AutoPseudoPipelineConfig:
             enabled=_get_bool("AUTO_PSEUDO_LABEL_AFTER_UPLOAD", True),
             export_root=os.getenv("AUTO_PSEUDO_LABEL_EXPORT_DIR", "./artifacts/manual_review"),
             evidence_db_path=os.getenv("EVIDENCE_DB_PATH", "./data/evidence_store.sqlite3"),
-            prior_config_path=os.getenv("AUTO_PSEUDO_LABEL_PRIOR_CONFIG", "configs/causal_prior.yaml"),
-            pseudo_rule_config_path=os.getenv("AUTO_PSEUDO_LABEL_RULE_CONFIG", "configs/causal_pseudo_label_rules.yaml"),
+            prior_config_path=os.getenv("AUTO_PSEUDO_LABEL_PRIOR_CONFIG", "configs/casual_prior.yaml"),
+            pseudo_rule_config_path=os.getenv("AUTO_PSEUDO_LABEL_RULE_CONFIG", "configs/casual_pseudo_labe_rules.yaml"),
             store_ambiguous=_get_bool("AUTO_PSEUDO_LABEL_STORE_AMBIGUOUS", False),
             max_edges_per_doc=_get_int("AUTO_PSEUDO_LABEL_MAX_EDGES_PER_DOC", None),
             max_units_per_doc_scan=_get_int("AUTO_PSEUDO_LABEL_MAX_UNITS_PER_DOC_SCAN", 500) or 500,
@@ -369,6 +472,8 @@ class AutoPseudoPipelineConfig:
             review_sample_size=_get_int("AUTO_PSEUDO_LABEL_REVIEW_SAMPLE_SIZE", 200) or 200,
             review_per_doc_cap=_get_int("AUTO_PSEUDO_LABEL_REVIEW_PER_DOC_CAP", 200) or 200,
             review_per_rule_cap=_get_int("AUTO_PSEUDO_LABEL_REVIEW_PER_RULE_CAP", 50) or 50,
+            skip_trivial_edges=_get_bool("AUTO_PSEUDO_LABEL_SKIP_TRIVIAL_EDGES", True),
+            trivial_edge_overlap_threshold=float(os.getenv("AUTO_PSEUDO_LABEL_TRIVIAL_EDGE_OVERLAP", "0.95")),
         )
 
 
@@ -381,64 +486,65 @@ def export_pseudo_label_package(
 ) -> Dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    all_csv = out_dir / "all_pseudo_labels.csv"
-    all_jsonl = out_dir / "pseudo_labels.jsonl"
+    edge_table_jsonl = out_dir / "candidate_edge_table.jsonl"
+    node_prior_jsonl = out_dir / "candidate_node_prior_table.jsonl"
+    cf_jsonl = out_dir / "counterfactual_pairs.jsonl"
+    train_jsonl = out_dir / "jointlk_multitask_train.jsonl"
     review_csv = out_dir / "manual_review_candidates.csv"
 
-    fieldnames = [
-        "pseudo_label_id",
-        "doc_id",
-        "file_name",
-        "source_node_id",
-        "source_text",
-        "source_layer",
-        "target_node_id",
-        "target_text",
-        "target_layer",
-        "relation_type",
-        "label",
-        "confidence",
-        "primary_rule",
-        "rule_hits_json",
-        "features_json",
-        "evidence_unit_id",
-        "evidence_text",
-        "manual_decision",
-        "manual_label",
-        "manual_relation_type",
-        "manual_comment",
-        "reviewer",
-    ]
-
-    with all_jsonl.open("w", encoding="utf-8") as f:
+    with edge_table_jsonl.open("w", encoding="utf-8") as f:
         for row in label_rows:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    with all_csv.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames[:-5])  # all labels不包含人工列
-        writer.writeheader()
+    node_rows: Dict[str, Dict[str, Any]] = {}
+    for row in label_rows:
+        src_key = f"{row.get('doc_id')}::{row.get('source_node_id')}"
+        dst_key = f"{row.get('doc_id')}::{row.get('target_node_id')}"
+        node_rows[src_key] = {
+            "doc_id": row.get("doc_id"),
+            "node_id": row.get("source_node_id"),
+            "node_text": row.get("source_text"),
+            "node_layer": row.get("source_layer"),
+            "silver_node_first": row.get("silver_node_first_src"),
+            "first_conf": row.get("src_first_conf"),
+        }
+        node_rows[dst_key] = {
+            "doc_id": row.get("doc_id"),
+            "node_id": row.get("target_node_id"),
+            "node_text": row.get("target_text"),
+            "node_layer": row.get("target_layer"),
+            "silver_node_first": row.get("silver_node_first_dst"),
+            "first_conf": row.get("dst_first_conf"),
+        }
+
+    with node_prior_jsonl.open("w", encoding="utf-8") as f:
+        for row in node_rows.values():
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    cf_sampler = CounterfactualSampler(getattr(config, "counterfactual", None))
+    cf_rows = cf_sampler.build_pairs(label_rows)
+    with cf_jsonl.open("w", encoding="utf-8") as f:
+        for row in cf_rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    with train_jsonl.open("w", encoding="utf-8") as f:
         for row in label_rows:
-            writer.writerow(
-                {
-                    "pseudo_label_id": row.get("pseudo_label_id"),
-                    "doc_id": row.get("doc_id"),
-                    "file_name": row.get("file_name"),
-                    "source_node_id": row.get("source_node_id"),
-                    "source_text": row.get("source_text"),
-                    "source_layer": row.get("source_layer"),
-                    "target_node_id": row.get("target_node_id"),
-                    "target_text": row.get("target_text"),
-                    "target_layer": row.get("target_layer"),
-                    "relation_type": row.get("relation_type"),
-                    "label": row.get("label"),
-                    "confidence": row.get("confidence"),
-                    "primary_rule": (row.get("rule_hits") or {}).get("primary_rule"),
-                    "rule_hits_json": json.dumps(row.get("rule_hits") or {}, ensure_ascii=False),
-                    "features_json": json.dumps(row.get("features") or {}, ensure_ascii=False),
-                    "evidence_unit_id": row.get("evidence_unit_id"),
-                    "evidence_text": row.get("evidence_text"),
-                }
-            )
+            flat = dict(row)
+            flat["causal_labels"] = row.get("silver_edge_causal", -1)
+            flat["enable_labels"] = row.get("silver_edge_enable", -1)
+            flat["dir_labels"] = row.get("silver_causal_dir", -1)
+            flat["temp_labels"] = row.get("silver_temporal_before", -1)
+            flat["src_first_labels"] = row.get("silver_node_first_src", -1)
+            flat["dst_first_labels"] = row.get("silver_node_first_dst", -1)
+            flat["causal_mask"] = 0 if int(flat["causal_labels"]) == -1 else 1
+            flat["enable_mask"] = 0 if int(flat["enable_labels"]) == -1 else 1
+            flat["dir_mask"] = 0 if int(flat["dir_labels"]) == -1 else 1
+            flat["temp_mask"] = 0 if int(flat["temp_labels"]) == -1 else 1
+            flat["src_first_mask"] = 0 if int(flat["src_first_labels"]) == -1 else 1
+            flat["dst_first_mask"] = 0 if int(flat["dst_first_labels"]) == -1 else 1
+            flat["label"] = 1 if int(flat["causal_labels"]) == 1 else 0
+            flat["label_confidence"] = float(row.get("causal_conf", 0.0))
+            f.write(json.dumps(flat, ensure_ascii=False) + "\n")
 
     review_candidates = choose_review_candidates(
         label_rows,
@@ -446,8 +552,36 @@ def export_pseudo_label_package(
         per_doc_cap=config.review_per_doc_cap,
         per_rule_cap=config.review_per_rule_cap,
     )
+    review_fields = [
+        "pseudo_label_id",
+        "doc_id",
+        "file_name",
+        "source_node_id",
+        "source_text",
+        "target_node_id",
+        "target_text",
+        "relation_type",
+        "silver_edge_causal",
+        "causal_conf",
+        "silver_edge_enable",
+        "enable_conf",
+        "silver_causal_dir",
+        "dir_conf",
+        "silver_temporal_before",
+        "temporal_conf",
+        "silver_node_first_src",
+        "src_first_conf",
+        "silver_node_first_dst",
+        "dst_first_conf",
+        "rule_hits_json",
+        "sample_weight",
+        "twin_group_id",
+        "manual_decision",
+        "manual_comment",
+        "reviewer",
+    ]
     with review_csv.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=review_fields)
         writer.writeheader()
         for row in review_candidates:
             writer.writerow(
@@ -457,21 +591,25 @@ def export_pseudo_label_package(
                     "file_name": row.get("file_name"),
                     "source_node_id": row.get("source_node_id"),
                     "source_text": row.get("source_text"),
-                    "source_layer": row.get("source_layer"),
                     "target_node_id": row.get("target_node_id"),
                     "target_text": row.get("target_text"),
-                    "target_layer": row.get("target_layer"),
                     "relation_type": row.get("relation_type"),
-                    "label": row.get("label"),
-                    "confidence": row.get("confidence"),
-                    "primary_rule": (row.get("rule_hits") or {}).get("primary_rule"),
+                    "silver_edge_causal": row.get("silver_edge_causal"),
+                    "causal_conf": row.get("causal_conf"),
+                    "silver_edge_enable": row.get("silver_edge_enable"),
+                    "enable_conf": row.get("enable_conf"),
+                    "silver_causal_dir": row.get("silver_causal_dir"),
+                    "dir_conf": row.get("dir_conf"),
+                    "silver_temporal_before": row.get("silver_temporal_before"),
+                    "temporal_conf": row.get("temporal_conf"),
+                    "silver_node_first_src": row.get("silver_node_first_src"),
+                    "src_first_conf": row.get("src_first_conf"),
+                    "silver_node_first_dst": row.get("silver_node_first_dst"),
+                    "dst_first_conf": row.get("dst_first_conf"),
                     "rule_hits_json": json.dumps(row.get("rule_hits") or {}, ensure_ascii=False),
-                    "features_json": json.dumps(row.get("features") or {}, ensure_ascii=False),
-                    "evidence_unit_id": row.get("evidence_unit_id"),
-                    "evidence_text": row.get("evidence_text"),
+                    "sample_weight": row.get("sample_weight"),
+                    "twin_group_id": row.get("twin_group_id"),
                     "manual_decision": "",
-                    "manual_label": "",
-                    "manual_relation_type": "",
                     "manual_comment": "",
                     "reviewer": "",
                 }
@@ -479,14 +617,28 @@ def export_pseudo_label_package(
 
     manifest = {
         "num_pseudo_labels": len(label_rows),
-        "label_breakdown": {
-            "positive": sum(1 for x in label_rows if int(x.get("label", -1)) == 1),
-            "negative": sum(1 for x in label_rows if int(x.get("label", -1)) == 0),
+        "task_coverage": {
+            "edge_causal": sum(1 for x in label_rows if int(x.get("silver_edge_causal", -1)) != -1) / max(1, len(label_rows)),
+            "edge_enable": sum(1 for x in label_rows if int(x.get("silver_edge_enable", -1)) != -1) / max(1, len(label_rows)),
+            "causal_dir": sum(1 for x in label_rows if int(x.get("silver_causal_dir", -1)) != -1) / max(1, len(label_rows)),
+            "temporal_before": sum(1 for x in label_rows if int(x.get("silver_temporal_before", -1)) != -1) / max(1, len(label_rows)),
+            "node_first_src": sum(1 for x in label_rows if int(x.get("silver_node_first_src", -1)) != -1) / max(1, len(label_rows)),
+            "node_first_dst": sum(1 for x in label_rows if int(x.get("silver_node_first_dst", -1)) != -1) / max(1, len(label_rows)),
+        },
+        "abstain_rate": {
+            "edge_causal": sum(1 for x in label_rows if int(x.get("silver_edge_causal", -1)) == -1) / max(1, len(label_rows)),
+            "edge_enable": sum(1 for x in label_rows if int(x.get("silver_edge_enable", -1)) == -1) / max(1, len(label_rows)),
+            "causal_dir": sum(1 for x in label_rows if int(x.get("silver_causal_dir", -1)) == -1) / max(1, len(label_rows)),
+            "temporal_before": sum(1 for x in label_rows if int(x.get("silver_temporal_before", -1)) == -1) / max(1, len(label_rows)),
+            "node_first_src": sum(1 for x in label_rows if int(x.get("silver_node_first_src", -1)) == -1) / max(1, len(label_rows)),
+            "node_first_dst": sum(1 for x in label_rows if int(x.get("silver_node_first_dst", -1)) == -1) / max(1, len(label_rows)),
         },
         "review_candidate_count": len(review_candidates),
         "paths": {
-            "pseudo_labels_jsonl": str(all_jsonl),
-            "all_pseudo_labels_csv": str(all_csv),
+            "candidate_edge_table_jsonl": str(edge_table_jsonl),
+            "candidate_node_prior_table_jsonl": str(node_prior_jsonl),
+            "counterfactual_pairs_jsonl": str(cf_jsonl),
+            "jointlk_multitask_train_jsonl": str(train_jsonl),
             "manual_review_candidates_csv": str(review_csv),
         },
     }
@@ -494,7 +646,6 @@ def export_pseudo_label_package(
         manifest.update(manifest_extra)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest
-
 
 def run_pseudo_label_pipeline_for_doc(
     *,
@@ -536,10 +687,33 @@ def run_pseudo_label_pipeline_for_doc(
         limit=cfg.max_edges_per_doc,
         unit_rows=unit_rows,
     )
+    raw_candidate_edges = len(doc_edges)
+    doc_edges, dedup_dropped_edges = deduplicate_candidate_edges(doc_edges)
 
     label_rows: List[Dict[str, Any]] = []
-    ambiguous = 0
+    task_abstain_counts = defaultdict(int)
+    skipped_trivial_edges = 0
     for edge_idx, edge in enumerate(doc_edges, start=1):
+        if cfg.skip_trivial_edges and is_trivial_or_self_edge(
+            edge,
+            text_overlap_threshold=cfg.trivial_edge_overlap_threshold,
+        ):
+            skipped_trivial_edges += 1
+            if progress_hook is not None:
+                progress_hook(
+                    {
+                        "stage": "edge_skip",
+                        "doc_id": doc_id,
+                        "file_name": file_name,
+                        "edge_index": edge_idx,
+                        "source_text": edge.source_text,
+                        "relation_type": edge.relation_type,
+                        "target_text": edge.target_text,
+                        "reason": "trivial_or_self_edge",
+                    }
+                )
+            continue
+
         evidence_units = gather_evidence_units_for_edge(
             store=store,
             edge=edge,
@@ -557,7 +731,7 @@ def run_pseudo_label_pipeline_for_doc(
             except Exception:
                 chunk_distance = None
 
-        decision = labeler.decide(
+        decision = labeler.decide_multitask(
             source_node_id=edge.source_node_id,
             source_text=edge.source_text,
             source_layer=edge.source_layer,
@@ -571,46 +745,33 @@ def run_pseudo_label_pipeline_for_doc(
             chunk_distance=chunk_distance,
         )
 
-        if decision.label is None:
-            ambiguous += 1
-            if progress_hook is not None:
-                progress_hook(
-                    {
-                        "stage": "edge_decision",
-                        "doc_id": doc_id,
-                        "file_name": file_name,
-                        "edge_index": edge_idx,
+        row = build_pseudo_label_record(edge, decision)
+        label_rows.append(row)
+        for task_field in [
+            "silver_edge_causal",
+            "silver_edge_enable",
+            "silver_causal_dir",
+            "silver_temporal_before",
+            "silver_node_first_src",
+            "silver_node_first_dst",
+        ]:
+            if int(row.get(task_field, -1)) == -1:
+                task_abstain_counts[task_field] += 1
+        if progress_hook is not None:
+            progress_hook(
+                {
+                    "stage": "edge_decision",
+                    "doc_id": doc_id,
+                    "file_name": file_name,
+                    "edge_index": edge_idx,
                         "num_candidate_edges": len(doc_edges),
                         "source_text": edge.source_text,
-                        "relation_type": edge.relation_type,
-                        "target_text": edge.target_text,
-                        "label": None,
-                        "confidence": float(decision.confidence),
-                        "primary_rule": decision.primary_rule,
-                    }
-                )
-            if not cfg.store_ambiguous:
-                continue
-
-        if decision.label is not None:
-            row = build_pseudo_label_record(edge, decision)
-            label_rows.append(row)
-            if progress_hook is not None:
-                progress_hook(
-                    {
-                        "stage": "edge_decision",
-                        "doc_id": doc_id,
-                        "file_name": file_name,
-                        "edge_index": edge_idx,
-                        "num_candidate_edges": len(doc_edges),
-                        "source_text": edge.source_text,
-                        "relation_type": row.get("relation_type"),
-                        "target_text": edge.target_text,
-                        "label": int(row.get("label") or 0),
-                        "confidence": float(row.get("confidence") or 0.0),
-                        "primary_rule": (row.get("rule_hits") or {}).get("primary_rule"),
-                    }
-                )
+                    "relation_type": row.get("relation_type"),
+                    "target_text": edge.target_text,
+                    "silver_edge_causal": row.get("silver_edge_causal"),
+                    "causal_conf": float(row.get("causal_conf") or 0.0),
+                }
+            )
 
     if label_rows:
         store.upsert_pseudo_edge_labels(label_rows)
@@ -626,8 +787,11 @@ def run_pseudo_label_pipeline_for_doc(
             "kg_scope": kg_scope,
             "kg_id": kg_id,
             "num_candidate_edges": len(doc_edges),
+            "num_candidate_edges_before_dedup": raw_candidate_edges,
+            "dedup_dropped_edges": dedup_dropped_edges,
             "num_evidence_units_scanned": len(unit_rows),
-            "ambiguous_edges": ambiguous,
+            "skipped_trivial_edges": skipped_trivial_edges,
+            "abstain_counts": dict(task_abstain_counts),
             "candidate_generation": candidate_stats,
             "configs": {
                 "prior_config": cfg.prior_config_path,
@@ -636,8 +800,10 @@ def run_pseudo_label_pipeline_for_doc(
             },
         },
     )
-    preview = label_rows[: max(0, int(console_preview_limit or 0))]
-    return {"ok": True, "export_dir": str(out_dir), **manifest,"preview":preview}
+    preview_limit = max(0, int(console_preview_limit or 0))
+    preview = label_rows[:preview_limit]
+    if preview_limit > 0:
+        print_pseudo_label_rows_console(label_rows, limit=preview_limit)
     if progress_hook is not None:
         progress_hook(
             {
@@ -645,8 +811,12 @@ def run_pseudo_label_pipeline_for_doc(
                 "doc_id": doc_id,
                 "file_name": file_name,
                 "num_candidate_edges": len(doc_edges),
-                "num_pseudo_labels":len(label_rows),
-                "ambiguous_edges": ambiguous,
-                "label_breakdown": manifest.get("label_breakdown",{}),
+                "num_candidate_edges_before_dedup": raw_candidate_edges,
+                "dedup_dropped_edges": dedup_dropped_edges,
+                "num_pseudo_labels": len(label_rows),
+                "skipped_trivial_edges": skipped_trivial_edges,
+                "abstain_counts": dict(task_abstain_counts),
+                "task_coverage": manifest.get("task_coverage", {}),
             }
         )
+    return {"ok": True, "export_dir": str(out_dir), **manifest, "preview": preview}

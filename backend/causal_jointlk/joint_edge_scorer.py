@@ -131,11 +131,21 @@ class CausalJointLKEdgeScorer:
         )
         outputs = self.model(batch)
         probs = outputs["support_prob"].detach().cpu().tolist()
+        enable_probs = outputs["enable_prob"].detach().cpu().tolist()
+        dir_probs = outputs["dir_prob"].detach().cpu().tolist()
+        temporal_probs = outputs["temporal_prob"].detach().cpu().tolist()
+        node_first_probs = outputs["node_first_prob"].detach().cpu().tolist()
 
         out: List[CausalEdge] = []
-        for edge, p in zip(valid_edges, probs):
+        for edge, p, pe, pd, pt, pn in zip(valid_edges, probs, enable_probs, dir_probs, temporal_probs,
+                                           node_first_probs):
             edge.score = float(p)
             edge.support_score = float(p)
             edge.supported = bool(p >= 0.5)
+            edge.p_causal = float(p)
+            edge.p_enable = float(pe)
+            edge.p_dir = float(pd)
+            edge.p_temporal_before = float(pt)
+            edge.p_node_first = float(pn)
             out.append(edge)
         return out

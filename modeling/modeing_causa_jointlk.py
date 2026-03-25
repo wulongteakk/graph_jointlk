@@ -131,7 +131,12 @@ class CausalJointLKModel(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
         self.support_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
-        self.relation_head = FeedForward(self.hidden_size * 4, self.hidden_size * 2, self.num_relations, dropout=dropout)
+        self.enable_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
+        self.dir_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
+        self.temporal_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
+        self.node_first_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
+        self.relation_head = FeedForward(self.hidden_size * 4, self.hidden_size * 2, self.num_relations,
+                                         dropout=dropout)
 
     def _get_word_embeddings(self, token_ids: torch.Tensor) -> torch.Tensor:
         emb_layer = self.lm.get_input_embeddings()
@@ -230,12 +235,24 @@ class CausalJointLKModel(nn.Module):
         relation_features = torch.cat([src_vec, tgt_vec, graph_vec, sent_vec], dim=-1)
 
         support_logits = self.support_head(support_features).squeeze(-1)
+        enable_logits = self.enable_head(support_features).squeeze(-1)
+        dir_logits = self.dir_head(support_features).squeeze(-1)
+        temporal_logits = self.temporal_head(support_features).squeeze(-1)
+        node_first_logits = self.node_first_head(support_features).squeeze(-1)
         relation_logits = self.relation_head(relation_features)
 
         return {
             "support_logits": support_logits,
+            "enable_logits": enable_logits,
+            "dir_logits": dir_logits,
+            "temporal_logits": temporal_logits,
+            "node_first_logits": node_first_logits,
             "relation_logits": relation_logits,
             "support_prob": torch.sigmoid(support_logits),
+            "enable_prob": torch.sigmoid(enable_logits),
+            "dir_prob": torch.sigmoid(dir_logits),
+            "temporal_prob": torch.sigmoid(temporal_logits),
+            "node_first_prob": torch.sigmoid(node_first_logits),
             "graph_vec": graph_vec,
             "sent_vec": sent_vec,
             "node_states": node_states,
@@ -270,6 +287,7 @@ def compute_training_loss(
     outputs: Dict[str, torch.Tensor],
     labels: torch.Tensor,
     relation_labels: Optional[torch.Tensor] = None,
+    multitask_labels: Optional[Dict[str, torch.Tensor]] = None,
     relation_loss_weight: float = 0.2,
     sample_weights: Optional[torch.Tensor] = None,
     pos_weight: Optional[torch.Tensor] = None,
@@ -284,6 +302,25 @@ def compute_training_loss(
 
     total_loss = support_loss
     relation_loss = torch.zeros_like(support_loss)
+    aux_loss = torch.zeros_like(support_loss)
+
+    multitask_labels = multitask_labels or {}
+
+    def _masked_bce(logits: torch.Tensor, labels_local: Optional[torch.Tensor], mask: Optional[torch.Tensor]) -> torch.Tensor:
+        if labels_local is None or mask is None:
+            return torch.zeros_like(support_loss)
+        losses = F.binary_cross_entropy_with_logits(logits, labels_local.float(), reduction="none")
+        losses = losses * mask.float()
+        denom = mask.sum().clamp_min(1.0)
+        return losses.sum() / denom
+
+    aux_loss = (
+        _masked_bce(outputs["enable_logits"], multitask_labels.get("enable_labels"), multitask_labels.get("enable_mask"))
+        + _masked_bce(outputs["dir_logits"], multitask_labels.get("dir_labels"), multitask_labels.get("dir_mask"))
+        + _masked_bce(outputs["temporal_logits"], multitask_labels.get("temp_labels"), multitask_labels.get("temp_mask"))
+        + _masked_bce(outputs["node_first_logits"], multitask_labels.get("src_first_labels"), multitask_labels.get("src_first_mask"))
+        + _masked_bce(outputs["node_first_logits"], multitask_labels.get("dst_first_labels"), multitask_labels.get("dst_first_mask"))
+    ) / 5.0
 
     if relation_labels is not None:
         positive_mask = labels > 0.5
@@ -298,11 +335,13 @@ def compute_training_loss(
                 relation_loss = (relation_losses * pos_weights).sum() / pos_weights.sum().clamp_min(1.0)
             else:
                 relation_loss = relation_losses.mean()
-            total_loss = total_loss + relation_loss_weight * relation_loss
+                total_loss = total_loss + relation_loss_weight * relation_loss
 
-    return {
-        "loss": total_loss,
-        "support_loss": support_loss,
-        "relation_loss": relation_loss,
-    }
+        total_loss = total_loss + 0.2 * aux_loss
 
+        return {
+            "loss": total_loss,
+            "support_loss": support_loss,
+            "relation_loss": relation_loss,
+            "aux_loss": aux_loss,
+        }

@@ -177,3 +177,37 @@ training:
   num_gnn_layers: 3
   dropout: 0.20
   relation_loss_weight: 0.20
+
+# 事故任务类型映射（兼容现有 layer）
+accident_layer_mapping:
+  SOURCESTATE: ROOT
+  SOURCEEVENT: CAUSE
+  INTERMEDIATEEVENT: INTERMEDIATE
+  HARMEVENT: OUTCOME
+  CONSEQUENCE: CONSEQUENCE
+
+temporal_rules:
+  before_cues: ["先", "随后", "然后", "after", "then", "followed by"]
+  reverse_cues: ["之前", "此前", "before", "prior to"]
+  uncertain_cues: ["可能", "大概", "may", "might"]
+
+direction_rules:
+  forward_cues: ["导致", "引发", "causes", "leads to", "results in"]
+  reverse_cues: ["由", "源于", "caused by", "due to"]
+
+first_induced_rules:
+  cues: ["诱因", "隐患", "先是", "根本原因", "root cause"]
+
+severity_rules:
+  death_weight: 1.0
+  severe_injury_weight: 0.8
+  mild_injury_weight: 0.4
+  pressure_weight: 0.5
+  toxicity_weight: 0.7
+
+counterfactual_rules:
+  same_target: true
+  same_layer: true
+  max_twin_per_positive: 2
+  actor_overlap_min: 0.2
+  margin: 0.1

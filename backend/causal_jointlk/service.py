@@ -108,7 +108,16 @@ class CausalJointLKService:
 
         evidence_by_edge_id = self._build_evidence_map(edges)
 
-        if mode == "jointlk" and self.neural_scorer is not None:
+        supported_modes = {
+            "baseline",
+            "baseline+gate",
+            "jointlk",
+            "jointlk+gate",
+            "jointlk+gate+branch",
+        }
+        mode = mode if mode in supported_modes else ("jointlk" if mode == "jointlk" else "baseline+gate")
+
+        if mode.startswith("jointlk") and self.neural_scorer is not None:
             scored_edges = self.neural_scorer.score(
                 query=query or target_text,
                 nodes=nodes,
@@ -116,15 +125,15 @@ class CausalJointLKService:
                 evidence_by_edge_id=evidence_by_edge_id,
                 doc_title=doc_id,
             )
-            # 神经分数出来之后，仍走 evidence gate 做二次校验
-            scored_edges = self.baseline.score_edges(scored_edges, evidence_by_edge_id)
+            if "+gate" in mode:
+                scored_edges = self.baseline.score_edges(scored_edges, evidence_by_edge_id)
         else:
-            scored_edges = self.baseline.score_edges(edges, evidence_by_edge_id)
-
-        if target_node_id:
-            beam_seeds = self._find_root_like_seeds(nodes, scored_edges)
-        else:
-            beam_seeds = seed_node_ids or self._find_root_like_seeds(nodes, scored_edges)
+            if mode == "baseline":
+                scored_edges = list(edges)
+                for edge in scored_edges:
+                    edge.supported = True
+            else:
+                scored_edges = self.baseline.score_edges(edges, evidence_by_edge_id)
 
         chains = self.chain_builder.build(
             edges=scored_edges,

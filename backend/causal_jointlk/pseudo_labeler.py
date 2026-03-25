@@ -152,6 +152,28 @@ class PseudoLabelDecision:
     evidence_unit_id: Optional[str] = None
     evidence_text: Optional[str] = None
 
+@dataclass
+class MultiTaskPseudoLabelDecision:
+    silver_edge_causal: int
+    causal_conf: float
+    silver_edge_enable: int
+    enable_conf: float
+    silver_causal_dir: int
+    dir_conf: float
+    silver_temporal_before: int
+    temporal_conf: float
+    silver_node_first_src: int
+    src_first_conf: float
+    silver_node_first_dst: int
+    dst_first_conf: float
+    rule_hits: Dict[str, List[str]] = field(default_factory=dict)
+    sample_weight: float = 1.0
+    twin_group_id: Optional[str] = None
+    review_status: str = "pending"
+    evidence_unit_id: Optional[str] = None
+    evidence_text: Optional[str] = None
+    features: Dict[str, Any] = field(default_factory=dict)
+
 
 class CausalPseudoLabeler:
     def __init__(self, config: Dict[str, Any]):
@@ -451,4 +473,94 @@ class CausalPseudoLabeler:
             features=features,
             evidence_unit_id=features.get("matched_evidence_unit_id"),
             evidence_text=features.get("matched_evidence_text"),
+        )
+
+    def decide_multitask(
+            self,
+            *,
+            source_node_id: str,
+            source_text: str,
+            source_layer: Optional[str],
+            target_node_id: str,
+            target_text: str,
+            target_layer: Optional[str],
+            relation_type: Optional[str],
+            rel_props: Optional[Dict[str, Any]] = None,
+            evidence_units: Optional[Sequence[Dict[str, Any]]] = None,
+            explicit_evidence_pointer: bool = False,
+            chunk_distance: Optional[int] = None,
+    ) -> MultiTaskPseudoLabelDecision:
+        rel_props = rel_props or {}
+        evidence_units = list(evidence_units or [])
+        relation_type_u = str(relation_type or "").strip().upper()
+        evidence_feats, _ = self._evidence_features(source_text, target_text, evidence_units)
+
+        from .pseudo_tasks import PseudoTaskFactory
+
+        task_factory = PseudoTaskFactory(self.config)
+        shared_text = " ".join(
+            [
+                source_text or "",
+                relation_type_u,
+                target_text or "",
+                str(evidence_feats.get("matched_evidence_text") or ""),
+            ]
+        )
+        edge_causal = task_factory.label_edge_causal(shared_text, relation_type_u, evidence_feats)
+        edge_enable = task_factory.label_edge_enable(shared_text, relation_type_u, evidence_feats)
+        dir_decision = task_factory.label_edge_direction(shared_text, evidence_feats)
+        temporal_decision = task_factory.label_edge_temporal(shared_text, evidence_feats)
+        src_first, dst_first = task_factory.label_node_first(
+            source_text=source_text,
+            target_text=target_text,
+            source_layer=source_layer,
+            target_layer=target_layer,
+        )
+
+        active_confs = [
+            c
+            for l, c in [
+                (edge_causal.label, edge_causal.confidence),
+                (edge_enable.label, edge_enable.confidence),
+                (dir_decision.label, dir_decision.confidence),
+                (temporal_decision.label, temporal_decision.confidence),
+                (src_first.label, src_first.confidence),
+                (dst_first.label, dst_first.confidence),
+            ]
+            if l != -1
+        ]
+        sample_weight = float(sum(active_confs) / max(1, len(active_confs)))
+
+        return MultiTaskPseudoLabelDecision(
+            silver_edge_causal=edge_causal.label,
+            causal_conf=edge_causal.confidence,
+            silver_edge_enable=edge_enable.label,
+            enable_conf=edge_enable.confidence,
+            silver_causal_dir=dir_decision.label,
+            dir_conf=dir_decision.confidence,
+            silver_temporal_before=temporal_decision.label,
+            temporal_conf=temporal_decision.confidence,
+            silver_node_first_src=src_first.label,
+            src_first_conf=src_first.confidence,
+            silver_node_first_dst=dst_first.label,
+            dst_first_conf=dst_first.confidence,
+            rule_hits={
+                "edge_causal": edge_causal.rule_hits,
+                "edge_enable": edge_enable.rule_hits,
+                "causal_dir": dir_decision.rule_hits,
+                "temporal_before": temporal_decision.rule_hits,
+                "node_first_src": src_first.rule_hits,
+                "node_first_dst": dst_first.rule_hits,
+            },
+            sample_weight=sample_weight,
+            evidence_unit_id=evidence_feats.get("matched_evidence_unit_id"),
+            evidence_text=evidence_feats.get("matched_evidence_text"),
+            features={
+                "source_node_id": source_node_id,
+                "target_node_id": target_node_id,
+                "relation_type": relation_type_u,
+                "chunk_distance": chunk_distance,
+                "explicit_evidence_pointer": explicit_evidence_pointer,
+                **evidence_feats,
+            },
         )

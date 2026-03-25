@@ -174,6 +174,7 @@ class CandidateGenerator:
         kg_id: Optional[str],
         evidence_unit_ids: Sequence[str],
         score: float,
+        evidence_text: Optional[str] = None,
     ) -> CandidateEdge:
         return CandidateEdge(
             doc_id=doc_id,
@@ -197,6 +198,7 @@ class CandidateGenerator:
                 "candidate_score": round(float(score), 4),
                 "evidence_unit_ids": list(dict.fromkeys([str(x) for x in evidence_unit_ids if str(x).strip()])),
             },
+            evidence_text=evidence_text,
             source_chunk_id=source.get("chunk_id"),
             source_chunk_pos=source.get("chunk_pos"),
             target_chunk_id=target.get("chunk_id"),
@@ -237,6 +239,7 @@ class CandidateGenerator:
                             kg_scope=kg_scope,
                             kg_id=kg_id,
                             evidence_unit_ids=[uid],
+                            evidence_text=evidence_text,
                             score=max(float(a.get("match_score", 0.0)), float(b.get("match_score", 0.0))),
                         )
                     )

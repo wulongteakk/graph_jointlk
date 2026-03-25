@@ -179,6 +179,18 @@ def batchify_examples(
     relation_ids: List[int] = []
     labels: List[float] = []
     relation_labels: List[int] = []
+    causal_labels: List[float] = []
+    enable_labels: List[float] = []
+    dir_labels: List[float] = []
+    temp_labels: List[float] = []
+    src_first_labels: List[float] = []
+    dst_first_labels: List[float] = []
+    causal_mask: List[float] = []
+    enable_mask: List[float] = []
+    dir_mask: List[float] = []
+    temp_mask: List[float] = []
+    src_first_mask: List[float] = []
+    dst_first_mask: List[float] = []
     sample_ids: List[str] = []
     edge_src: List[int] = []
     edge_dst: List[int] = []
@@ -228,6 +240,25 @@ def batchify_examples(
         relation_ids.append(relation_to_id.get(rel_name, 0))
         relation_labels.append(relation_to_id.get(gold_rel_name, 0))
         labels.append(float(ex.get("label", 0.0)))
+        c_label = float(ex.get("causal_labels", ex.get("silver_edge_causal", ex.get("label", -1))))
+        e_label = float(ex.get("enable_labels", ex.get("silver_edge_enable", -1)))
+        d_label = float(ex.get("dir_labels", ex.get("silver_causal_dir", -1)))
+        t_label = float(ex.get("temp_labels", ex.get("silver_temporal_before", -1)))
+        s_label = float(ex.get("src_first_labels", ex.get("silver_node_first_src", -1)))
+        d2_label = float(ex.get("dst_first_labels", ex.get("silver_node_first_dst", -1)))
+        causal_labels.append(max(0.0, c_label))
+        enable_labels.append(max(0.0, e_label))
+        dir_labels.append(max(0.0, d_label))
+        temp_labels.append(max(0.0, t_label))
+        src_first_labels.append(max(0.0, s_label))
+        dst_first_labels.append(max(0.0, d2_label))
+        causal_mask.append(float(ex.get("causal_mask", 0 if c_label < 0 else 1)))
+        enable_mask.append(float(ex.get("enable_mask", 0 if e_label < 0 else 1)))
+        dir_mask.append(float(ex.get("dir_mask", 0 if d_label < 0 else 1)))
+        temp_mask.append(float(ex.get("temp_mask", 0 if t_label < 0 else 1)))
+        src_first_mask.append(float(ex.get("src_first_mask", 0 if s_label < 0 else 1)))
+        dst_first_mask.append(float(ex.get("dst_first_mask", 0 if d2_label < 0 else 1)))
+
         sample_ids.append(str(ex.get("sample_id") or f"sample-{graph_idx}"))
         sample_weights.append(float(ex.get("sample_weight", 1.0)))
 
@@ -285,6 +316,18 @@ def batchify_examples(
         "relation_ids": torch.tensor(relation_ids, dtype=torch.long),
         "labels": torch.tensor(labels, dtype=torch.float),
         "relation_labels": torch.tensor(relation_labels, dtype=torch.long),
+        "causal_labels": torch.tensor(causal_labels, dtype=torch.float),
+        "enable_labels": torch.tensor(enable_labels, dtype=torch.float),
+        "dir_labels": torch.tensor(dir_labels, dtype=torch.float),
+        "temp_labels": torch.tensor(temp_labels, dtype=torch.float),
+        "src_first_labels": torch.tensor(src_first_labels, dtype=torch.float),
+        "dst_first_labels": torch.tensor(dst_first_labels, dtype=torch.float),
+        "causal_mask": torch.tensor(causal_mask, dtype=torch.float),
+        "enable_mask": torch.tensor(enable_mask, dtype=torch.float),
+        "dir_mask": torch.tensor(dir_mask, dtype=torch.float),
+        "temp_mask": torch.tensor(temp_mask, dtype=torch.float),
+        "src_first_mask": torch.tensor(src_first_mask, dtype=torch.float),
+        "dst_first_mask": torch.tensor(dst_first_mask, dtype=torch.float),
         "sample_weights": torch.tensor(sample_weights, dtype=torch.float),
         "sample_ids": sample_ids,
         "meta_rows": meta_rows,

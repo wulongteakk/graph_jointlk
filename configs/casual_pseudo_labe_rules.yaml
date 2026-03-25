@@ -126,3 +126,58 @@ evidence_retrieval:
   lexical_top_k: 5
   max_units_per_doc_scan: 500
   include_chunk_fallback: true
+
+enable_triggers:
+  - 使得
+  - 促成
+  - enable
+  - enables
+  - allow
+  - allows
+
+direction_forward_cues:
+  - 导致
+  - 引发
+  - leads to
+  - causes
+
+direction_reverse_cues:
+  - 由
+  - 源于
+  - caused by
+  - due to
+
+temporal_before_cues:
+  - 先
+  - 随后
+  - 然后
+  - after
+  - then
+
+temporal_reverse_cues:
+  - 之前
+  - 此前
+  - before
+
+first_induced_cues:
+  - 诱因
+  - 隐患
+  - 根本原因
+  - root cause
+
+task_thresholds:
+  edge_causal:
+    positive: 0.80
+    negative: 0.20
+  edge_enable:
+    positive: 0.78
+    negative: 0.25
+  causal_dir:
+    positive: 0.72
+    negative: 0.28
+  temporal_before:
+    positive: 0.70
+    negative: 0.30
+  node_first:
+    positive: 0.70
+    negative: 0.30
