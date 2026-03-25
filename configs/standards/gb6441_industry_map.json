@@ -1,11 +1,31 @@
 {
-  "description": "按 GB/T4754 去除门类代码后，取 4 位数字编码。",
+  "source_standard": "GB/T 4754-2017",
+  "lookup_file": "configs/standards/gbt4754_2017_codes.jsonl",
+  "alias_file": "configs/standards/gbt4754_aliases.json",
+  "category_way_code": "3",
+  "industry_code_rule": {
+    "description": "GB6441 行业编码 = WSA + 分类方式代码(3) + GB/T4754 四位数字小类代码",
+    "strip_section_letter": true,
+    "use_type_code_length": 4,
+    "output_pattern": "WSA{category_way_code}{type_code}"
+  },
+  "fallback_policy": {
+    "allow_hierarchical_fallback": true,
+    "prefer_smallest_valid_class": true,
+    "emit_section_when_class_missing": true
+  },
   "examples": [
     {
       "industry_name": "内河货物运输",
       "gbt4754_code": "G5523",
       "type_code": "5523",
       "wsa_code": "WSA35523"
+    },
+    {
+      "industry_name": "房屋建筑业",
+      "gbt4754_code": "E4710",
+      "type_code": "4710",
+      "wsa_code": "WSA34710"
     }
   ]
 }

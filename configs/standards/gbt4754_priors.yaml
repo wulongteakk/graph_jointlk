@@ -1,0 +1,37 @@
+module_priors:
+  production_safety:
+    default_section_bonus: {}
+  construction_safety:
+    default_section_bonus:
+      E: 0.20
+    scenario_bonus:
+      high_place_fall:
+        E4710: 0.25
+        E4813: 0.20
+        E49: 0.12
+      collapse:
+        E4710: 0.20
+        E481: 0.18
+        E48: 0.15
+      lifting_injury:
+        E49: 0.20
+        E4710: 0.15
+        C34: 0.10
+        G54: 0.08
+
+evidence_weights:
+  title_hit: 1.8
+  profile_hit: 1.5
+  body_hit: 1.0
+  alias_hit: 1.1
+  exact_name_hit: 2.2
+  exact_code_hit: 3.0
+  branch_context_hit: 0.6
+  repeated_activity_bonus: 0.3
+
+fallback:
+  enable_hierarchical_backoff: true
+  section_weight: 0.4
+  division_weight: 0.6
+  group_weight: 0.8
+  class_weight: 1.0
