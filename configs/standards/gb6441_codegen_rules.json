@@ -1,0 +1,16 @@
+{
+  "standard": "GB6441-2025",
+  "code_length": 8,
+  "prefix": "WSA",
+  "classification_method_code": {
+    "basic_type": "1",
+    "injury_severity": "2",
+    "industry": "3"
+  },
+  "format": "WSA + 分类方式代码(1位) + 类型代码(4位)",
+  "examples": [
+    "WSA10009",
+    "WSA20003",
+    "WSA35523"
+  ]
+}

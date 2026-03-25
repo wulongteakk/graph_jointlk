@@ -1,0 +1,3 @@
+merge_by_trigger: true
+cross_paragraph_backref_cues: [另查明, 经调查, 补充说明, 事后发现]
+roles: [main_event_narrative, cause_supplement, investigation_conclusion, consequence_description, disposal_process]

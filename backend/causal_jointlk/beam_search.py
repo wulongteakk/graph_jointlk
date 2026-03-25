@@ -1,4 +1,3 @@
-
 import heapq
 import uuid
 from collections import defaultdict
@@ -70,7 +69,9 @@ class BeamSearchChainBuilder:
 
                 hop_penalty = float(self.params.get("hop_penalty", 0.25))
 
-                delta = next_edge.score - hop_penalty - transition_penalty - unsupported_penalty - duplicate_penalty
+                first_bonus = float(self.params.get("first_prior_bonus", 0.15)) * float(next_edge.p_node_first or 0.0)
+                semantic_bonus = float(self.params.get("semantic_relation_bonus", 0.05)) if next_edge.relation in {"CAUSES", "ENABLES", "PRECEDES"} else 0.0
+                delta = next_edge.score - hop_penalty - transition_penalty - unsupported_penalty - duplicate_penalty + first_bonus + semantic_bonus
                 new_node_path = node_path + [next_edge.target_id]
                 new_edge_path = edge_path + [next_edge]
                 new_score = current_score + delta

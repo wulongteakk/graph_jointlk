@@ -1,0 +1,3 @@
+module_id: construction_safety
+description: 施工安全
+scenarios: [high_place_fall, collapse, lifting_injury]

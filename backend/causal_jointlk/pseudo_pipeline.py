@@ -429,8 +429,8 @@ class AutoPseudoPipelineConfig:
     enabled: bool = True
     export_root: str = "./artifacts/manual_review"
     evidence_db_path: str = "./data/evidence_store.sqlite3"
-    prior_config_path: str = "configs/casual_prior.yaml"
-    pseudo_rule_config_path: str = "configs/casual_pseudo_labe_rules.yaml"
+    prior_config_path: str = "configs/causal_prior.yaml"
+    pseudo_rule_config_path: str = "configs/causal_pseudo_labe_rules.yaml"
     store_ambiguous: bool = False
     max_edges_per_doc: Optional[int] = None
     max_units_per_doc_scan: int = 500
@@ -461,8 +461,8 @@ class AutoPseudoPipelineConfig:
             enabled=_get_bool("AUTO_PSEUDO_LABEL_AFTER_UPLOAD", True),
             export_root=os.getenv("AUTO_PSEUDO_LABEL_EXPORT_DIR", "./artifacts/manual_review"),
             evidence_db_path=os.getenv("EVIDENCE_DB_PATH", "./data/evidence_store.sqlite3"),
-            prior_config_path=os.getenv("AUTO_PSEUDO_LABEL_PRIOR_CONFIG", "configs/casual_prior.yaml"),
-            pseudo_rule_config_path=os.getenv("AUTO_PSEUDO_LABEL_RULE_CONFIG", "configs/casual_pseudo_labe_rules.yaml"),
+            prior_config_path=os.getenv("AUTO_PSEUDO_LABEL_PRIOR_CONFIG", "configs/causal_prior.yaml"),
+            pseudo_rule_config_path=os.getenv("AUTO_PSEUDO_LABEL_RULE_CONFIG", "configs/causal_pseudo_labe_rules.yaml"),
             store_ambiguous=_get_bool("AUTO_PSEUDO_LABEL_STORE_AMBIGUOUS", False),
             max_edges_per_doc=_get_int("AUTO_PSEUDO_LABEL_MAX_EDGES_PER_DOC", None),
             max_units_per_doc_scan=_get_int("AUTO_PSEUDO_LABEL_MAX_UNITS_PER_DOC_SCAN", 500) or 500,

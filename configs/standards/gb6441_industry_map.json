@@ -1,0 +1,11 @@
+{
+  "description": "按 GB/T4754 去除门类代码后，取 4 位数字编码。",
+  "examples": [
+    {
+      "industry_name": "内河货物运输",
+      "gbt4754_code": "G5523",
+      "type_code": "5523",
+      "wsa_code": "WSA35523"
+    }
+  ]
+}

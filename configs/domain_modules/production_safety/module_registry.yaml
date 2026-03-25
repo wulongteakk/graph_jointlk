@@ -1,0 +1,10 @@
+domain_id: production_safety
+modules:
+  - module_id: construction_safety
+    scenarios:
+      - scenario_id: high_place_fall
+        keywords: ["高处坠落", "高坠", "坠落"]
+      - scenario_id: collapse
+        keywords: ["坍塌", "倒塌", "塌方"]
+      - scenario_id: lifting_injury
+        keywords: ["起重", "吊装", "吊物打击"]

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional, Any
 
 from langchain.docstore.document import Document
+from src.evidence_discourse_linker import EvidenceDiscourseLinker
 
 
 CAUSAL_TRIGGER_WORDS = [
@@ -48,12 +49,21 @@ class EvidenceUnitRecord:
     section_name: Optional[str]
     prev_unit_id: Optional[str]
     next_unit_id: Optional[str]
+    unit_role: str
+    main_event_anchor_id: Optional[str]
+    supplement_to_unit_id: Optional[str]
+    unit_group_id: Optional[str]
+    event_order_hint: Optional[int]
+    actor_anchor_ids: list[str]
+    equipment_anchor_ids: list[str]
+    location_anchor_ids: list[str]
     meta: dict[str, Any]
 
 
 class EvidenceUnitBuilder:
     def __init__(self, trigger_words: Optional[list[str]] = None):
         self.trigger_words = trigger_words or list(CAUSAL_TRIGGER_WORDS)
+        self.discourse_linker = EvidenceDiscourseLinker()
 
     def build_from_chunks(self, chunk_records: list[dict]) -> list[EvidenceUnitRecord]:
         units: list[EvidenceUnitRecord] = []
@@ -69,44 +79,71 @@ class EvidenceUnitBuilder:
 
             raw_segments = self._split_by_structure(chunk_text)
             merged_segments = self._merge_by_causal_triggers(raw_segments)
-            section_name = metadata.get("section_name")
             page_range = self._normalise_page_range(metadata)
             file_name = metadata.get("fileName") or metadata.get("file_name") or ""
             report_id = metadata.get("doc_id") or metadata.get("report_id")
 
+            row_segments: list[dict[str, Any]] = []
             for idx, segment in enumerate(merged_segments):
                 text = segment["text"].strip()
                 if not text:
                     continue
-                features = self._extract_local_features(text=text, default_section_name=section_name)
-                unit_kind = "causal_unit" if features["trigger_words"] else segment.get("unit_kind", "sentence")
-                units.append(
-                    EvidenceUnitRecord(
-                        unit_id=f"{chunk_id}::evu::{idx}",
-                        parent_chunk_id=chunk_id,
-                        file_name=file_name,
-                        report_id=report_id,
-                        page_range=page_range,
-                        text=text,
-                        unit_kind=unit_kind,
-                        start_char=segment.get("start_char"),
-                        end_char=segment.get("end_char"),
-                        trigger_words=features["trigger_words"],
-                        temporal_cues=features["temporal_cues"],
-                        actors=features["actors"],
-                        section_name=features["section_name"],
-                        prev_unit_id=None,
-                        next_unit_id=None,
-                        meta={
-                            "chunk_index": metadata.get("chunk_index"),
-                            "page": metadata.get("page") or metadata.get("page_number"),
-                            "kg_scope": metadata.get("kg_scope"),
-                            "kg_id": metadata.get("kg_id"),
-                            "doc_id": metadata.get("doc_id"),
-                            "chunk_source": metadata.get("chunk_source"),
-                        },
-                    )
-                )
+                features = self._extract_local_features(text=text, default_section_name=metadata.get("section_title") or metadata.get("section_name"))
+                unit_id = f"{chunk_id}::evu::{idx}"
+                row_segments.append({
+                    "unit_id": unit_id,
+                    "text": text,
+                    "features": features,
+                    "unit_kind": "causal_unit" if features["trigger_words"] else segment.get("unit_kind", "sentence"),
+                    "start_char": segment.get("start_char"),
+                    "end_char": segment.get("end_char"),
+                })
+
+            row_segments = self.discourse_linker.assign_roles_and_links(row_segments)
+            unit_group_id = f"{chunk_id}::group::0"
+            for idx, seg in enumerate(row_segments):
+                features = seg["features"]
+                unit_role = seg.get("unit_role") or "main_event_narrative"
+                units.append(EvidenceUnitRecord(
+                    unit_id=seg["unit_id"],
+                    parent_chunk_id=chunk_id,
+                    file_name=file_name,
+                    report_id=report_id,
+                    page_range=page_range,
+                    text=seg["text"],
+                    unit_kind=seg["unit_kind"],
+                    start_char=seg["start_char"],
+                    end_char=seg["end_char"],
+                    trigger_words=features["trigger_words"],
+                    temporal_cues=features["temporal_cues"],
+                    actors=features["actors"],
+                    section_name=features["section_name"],
+                    prev_unit_id=None,
+                    next_unit_id=None,
+                    unit_role=unit_role,
+                    main_event_anchor_id=seg.get("main_event_anchor_id"),
+                    supplement_to_unit_id=seg.get("supplement_to_unit_id"),
+                    unit_group_id=unit_group_id,
+                    event_order_hint=int(metadata.get("narrative_index") or 0) + idx,
+                    actor_anchor_ids=[f"actor::{a}" for a in features["actors"]],
+                    equipment_anchor_ids=[],
+                    location_anchor_ids=[],
+                    meta={
+                        "chunk_index": metadata.get("chunk_index"),
+                        "page": metadata.get("page") or metadata.get("page_number"),
+                        "kg_scope": metadata.get("kg_scope"),
+                        "kg_id": metadata.get("kg_id"),
+                        "doc_id": metadata.get("doc_id"),
+                        "chunk_source": metadata.get("chunk_source"),
+                        "section_title": metadata.get("section_title"),
+                        "section_path": metadata.get("section_path"),
+                        "paragraph_id": metadata.get("paragraph_id"),
+                        "block_id": metadata.get("block_id"),
+                        "chunk_char_start": metadata.get("chunk_char_start"),
+                        "chunk_char_end": metadata.get("chunk_char_end"),
+                        "narrative_index": metadata.get("narrative_index"),
+                    },
+                ))
         return self._link_adjacent_units(units)
 
     def _split_by_structure(self, text: str) -> list[dict[str, Any]]:

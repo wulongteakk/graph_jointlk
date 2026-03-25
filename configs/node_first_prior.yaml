@@ -1,0 +1,9 @@
+canonical_map:
+  SourceState: SourceState
+  SourceEvent: SourceEvent
+  IntermediateEvent: IntermediateEvent
+  HarmEvent: HarmEvent
+  Consequence: Consequence
+weights:
+  source_bonus: 0.2
+  root_bonus: 0.2

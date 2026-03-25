@@ -112,6 +112,31 @@ CREATE TABLE IF NOT EXISTS pseudo_edge_labels (
 CREATE INDEX IF NOT EXISTS idx_pseudo_edge_labels_doc ON pseudo_edge_labels(doc_id, file_name);
 CREATE INDEX IF NOT EXISTS idx_pseudo_edge_labels_pair ON pseudo_edge_labels(source_node_id, target_node_id, relation_type);
 CREATE INDEX IF NOT EXISTS idx_pseudo_edge_labels_review ON pseudo_edge_labels(review_status, confidence);
+
+
+CREATE TABLE IF NOT EXISTS pseudo_multitask_labels (
+    sample_id TEXT PRIMARY KEY,
+    pseudo_label_id TEXT,
+    doc_id TEXT,
+    file_name TEXT,
+    source_node_id TEXT,
+    target_node_id TEXT,
+    silver_edge_causal INTEGER,
+    silver_edge_enable INTEGER,
+    silver_causal_dir INTEGER,
+    silver_temporal_before INTEGER,
+    silver_node_first_src INTEGER,
+    silver_node_first_dst INTEGER,
+    task_masks_json TEXT,
+    sample_weight REAL DEFAULT 1.0,
+    twin_group_id TEXT,
+    canonical_type_ids_json TEXT,
+    module_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pseudo_multitask_doc ON pseudo_multitask_labels(doc_id, file_name);
+
 """
 
 
@@ -864,6 +889,14 @@ class EvidenceStore:
                     "section_name": payload.get("section_name"),
                     "prev_unit_id": payload.get("prev_unit_id"),
                     "next_unit_id": payload.get("next_unit_id"),
+                    "unit_role": payload.get("unit_role"),
+                    "main_event_anchor_id": payload.get("main_event_anchor_id"),
+                    "supplement_to_unit_id": payload.get("supplement_to_unit_id"),
+                    "unit_group_id": payload.get("unit_group_id"),
+                    "event_order_hint": payload.get("event_order_hint"),
+                    "actor_anchor_ids": payload.get("actor_anchor_ids") or [],
+                    "equipment_anchor_ids": payload.get("equipment_anchor_ids") or [],
+                    "location_anchor_ids": payload.get("location_anchor_ids") or [],
                     "parent_chunk_id": payload.get("parent_chunk_id") or payload.get("parent_evidence_id"),
                     **(payload.get("meta") or {}),
                 },
@@ -937,6 +970,67 @@ class EvidenceStore:
                     )
                     for row in rows
                 ]
+            finally:
+                conn.close()
+
+    def upsert_pseudo_multitask_labels(self, labels: Sequence[Dict[str, Any]]) -> None:
+        if not labels:
+            return
+        now = datetime.utcnow().isoformat()
+        with self._lock:
+            conn = self._connect()
+            try:
+                for item in labels:
+                    conn.execute(
+                        """
+                        INSERT INTO pseudo_multitask_labels(
+                            sample_id, pseudo_label_id, doc_id, file_name, source_node_id, target_node_id,
+                            silver_edge_causal, silver_edge_enable, silver_causal_dir, silver_temporal_before,
+                            silver_node_first_src, silver_node_first_dst, task_masks_json, sample_weight,
+                            twin_group_id, canonical_type_ids_json, module_id, created_at, updated_at
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(sample_id) DO UPDATE SET
+                            pseudo_label_id=excluded.pseudo_label_id,
+                            doc_id=excluded.doc_id,
+                            file_name=excluded.file_name,
+                            source_node_id=excluded.source_node_id,
+                            target_node_id=excluded.target_node_id,
+                            silver_edge_causal=excluded.silver_edge_causal,
+                            silver_edge_enable=excluded.silver_edge_enable,
+                            silver_causal_dir=excluded.silver_causal_dir,
+                            silver_temporal_before=excluded.silver_temporal_before,
+                            silver_node_first_src=excluded.silver_node_first_src,
+                            silver_node_first_dst=excluded.silver_node_first_dst,
+                            task_masks_json=excluded.task_masks_json,
+                            sample_weight=excluded.sample_weight,
+                            twin_group_id=excluded.twin_group_id,
+                            canonical_type_ids_json=excluded.canonical_type_ids_json,
+                            module_id=excluded.module_id,
+                            updated_at=excluded.updated_at
+                        """,
+                        (
+                            item.get("sample_id"),
+                            item.get("pseudo_label_id"),
+                            item.get("doc_id"),
+                            item.get("file_name"),
+                            item.get("source_node_id"),
+                            item.get("target_node_id"),
+                            item.get("silver_edge_causal"),
+                            item.get("silver_edge_enable"),
+                            item.get("silver_causal_dir"),
+                            item.get("silver_temporal_before"),
+                            item.get("silver_node_first_src"),
+                            item.get("silver_node_first_dst"),
+                            json.dumps(item.get("task_masks") or {}, ensure_ascii=False),
+                            float(item.get("sample_weight") or 1.0),
+                            item.get("twin_group_id"),
+                            json.dumps(item.get("canonical_type_ids") or [], ensure_ascii=False),
+                            item.get("module_id"),
+                            now,
+                            now,
+                        ),
+                    )
+                conn.commit()
             finally:
                 conn.close()
 

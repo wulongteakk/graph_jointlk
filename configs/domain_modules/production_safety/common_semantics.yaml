@@ -1,0 +1,2 @@
+node_types: [SourceState, SourceEvent, IntermediateEvent, HarmEvent, Consequence]
+edge_types: [causes, enables, precedes, supported_by]

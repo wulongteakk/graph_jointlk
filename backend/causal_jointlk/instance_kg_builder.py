@@ -1,10 +1,11 @@
-
 import uuid
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from .evidence_gate import choose_best_evidence
 from .prior import CausalPrior
 from .schemas import CausalEdge, CausalNode
+from .semantic_layer import to_accident_canonical_type
+from .module_registry import ModuleRegistry
 
 
 class InstanceCausalKGBuilder:
@@ -23,6 +24,19 @@ class InstanceCausalKGBuilder:
         self.graph = graph
         self.prior = prior
         self.evidence_store = evidence_store
+        self.module_registry = ModuleRegistry()
+
+
+    def canonicalize_nodes(self, nodes: Sequence[CausalNode]) -> List[CausalNode]:
+        out: List[CausalNode] = []
+        for n in nodes:
+            n.canonical_type = to_accident_canonical_type(n.layer, n.core_type)
+            assign = self.module_registry.assign_module(n.text)
+            n.domain_id = assign["domain_id"]
+            n.module_id = assign["module_id"]
+            n.scenario_tags = assign["scenario_tags"]
+            out.append(n)
+        return out
 
     def canonicalize_edges(
         self,
@@ -33,6 +47,7 @@ class InstanceCausalKGBuilder:
         kg_scope: str = "instance",
         kg_id: Optional[str] = None,
     ) -> List[CausalEdge]:
+        nodes = self.canonicalize_nodes(nodes)
         node_map = {n.node_id: n for n in nodes}
         out: List[CausalEdge] = []
         for row in raw_edges:
@@ -73,6 +88,11 @@ class InstanceCausalKGBuilder:
                 kg_id=kg_id,
                 supported=bool(best.get("supported")),
                 support_score=float(best.get("support_score") or 0.0),
+                domain_id=source_node.domain_id,
+                module_id=source_node.module_id,
+                scenario_tags=list(set(source_node.scenario_tags + target_node.scenario_tags)),
+                relation_family=relation.lower(),
+                semantic_role="supported_by" if best.get("supported") else "candidate",
                 meta={
                     "source_span": best.get("source_span"),
                     "target_span": best.get("target_span"),

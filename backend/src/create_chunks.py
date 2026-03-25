@@ -43,6 +43,13 @@ class CreateChunksofDocument:
                         'doc_id': document.metadata.get('doc_id'),
                         'kg_scope': document.metadata.get('kg_scope'),
                         'kg_id': document.metadata.get('kg_id'),
+                        'section_title': document.metadata.get('section_title') or document.metadata.get('section_name'),
+                        'section_path': document.metadata.get('section_path'),
+                        'paragraph_id': document.metadata.get('paragraph_id') or f"p-{page_number}-{len(chunks)}",
+                        'block_id': document.metadata.get('block_id') or f"b-{page_number}",
+                        'chunk_char_start': chunk.metadata.get('start_index'),
+                        'chunk_char_end': chunk.metadata.get('end_index'),
+                        'narrative_index': len(chunks),
                     }))
 
         elif 'length' in self.pages[0].metadata:
@@ -56,6 +63,13 @@ class CreateChunksofDocument:
                 chunk.metadata.setdefault('doc_id', self.pages[0].metadata.get('doc_id'))
                 chunk.metadata.setdefault('kg_scope', self.pages[0].metadata.get('kg_scope'))
                 chunk.metadata.setdefault('kg_id', self.pages[0].metadata.get('kg_id'))
+                chunk.metadata.setdefault('section_title', self.pages[0].metadata.get('section_title') or self.pages[0].metadata.get('section_name'))
+                chunk.metadata.setdefault('section_path', self.pages[0].metadata.get('section_path'))
+                chunk.metadata.setdefault('paragraph_id', f'p-0-{idx}')
+                chunk.metadata.setdefault('block_id', 'b-0')
+                chunk.metadata.setdefault('chunk_char_start', chunk.metadata.get('start_index'))
+                chunk.metadata.setdefault('chunk_char_end', chunk.metadata.get('end_index'))
+                chunk.metadata.setdefault('narrative_index', idx)
         else:
             chunks = text_splitter.split_documents(self.pages)
             for idx, chunk in enumerate(chunks):
@@ -66,4 +80,11 @@ class CreateChunksofDocument:
                 chunk.metadata.setdefault('doc_id', self.pages[0].metadata.get('doc_id'))
                 chunk.metadata.setdefault('kg_scope', self.pages[0].metadata.get('kg_scope'))
                 chunk.metadata.setdefault('kg_id', self.pages[0].metadata.get('kg_id'))
+                chunk.metadata.setdefault('section_title', self.pages[0].metadata.get('section_title') or self.pages[0].metadata.get('section_name'))
+                chunk.metadata.setdefault('section_path', self.pages[0].metadata.get('section_path'))
+                chunk.metadata.setdefault('paragraph_id', f'p-0-{idx}')
+                chunk.metadata.setdefault('block_id', 'b-0')
+                chunk.metadata.setdefault('chunk_char_start', chunk.metadata.get('start_index'))
+                chunk.metadata.setdefault('chunk_char_end', chunk.metadata.get('end_index'))
+                chunk.metadata.setdefault('narrative_index', idx)
         return chunks

@@ -1,0 +1,164 @@
+[
+  {
+    "id": "basic_0001",
+    "name": "物体打击",
+    "type_code": "0001",
+    "wsa_code": "WSA10001"
+  },
+  {
+    "id": "basic_0002",
+    "name": "厂(场)内车辆致害",
+    "type_code": "0002",
+    "wsa_code": "WSA10002"
+  },
+  {
+    "id": "basic_0003",
+    "name": "道路(轨道)车辆致害",
+    "type_code": "0003",
+    "wsa_code": "WSA10003"
+  },
+  {
+    "id": "basic_0004",
+    "name": "机械致害",
+    "type_code": "0004",
+    "wsa_code": "WSA10004"
+  },
+  {
+    "id": "basic_0005",
+    "name": "起重致害",
+    "type_code": "0005",
+    "wsa_code": "WSA10005"
+  },
+  {
+    "id": "basic_0006",
+    "name": "触电",
+    "type_code": "0006",
+    "wsa_code": "WSA10006"
+  },
+  {
+    "id": "basic_0007",
+    "name": "淹溺",
+    "type_code": "0007",
+    "wsa_code": "WSA10007"
+  },
+  {
+    "id": "basic_0008",
+    "name": "灼烫",
+    "type_code": "0008",
+    "wsa_code": "WSA10008"
+  },
+  {
+    "id": "basic_0009",
+    "name": "火灾",
+    "type_code": "0009",
+    "wsa_code": "WSA10009"
+  },
+  {
+    "id": "basic_0010",
+    "name": "高处坠落",
+    "type_code": "0010",
+    "wsa_code": "WSA10010"
+  },
+  {
+    "id": "basic_0011",
+    "name": "跌落",
+    "type_code": "0011",
+    "wsa_code": "WSA10011"
+  },
+  {
+    "id": "basic_0012",
+    "name": "坍塌",
+    "type_code": "0012",
+    "wsa_code": "WSA10012"
+  },
+  {
+    "id": "basic_0013",
+    "name": "水害",
+    "type_code": "0013",
+    "wsa_code": "WSA10013"
+  },
+  {
+    "id": "basic_0014",
+    "name": "容器爆炸",
+    "type_code": "0014",
+    "wsa_code": "WSA10014"
+  },
+  {
+    "id": "basic_0015",
+    "name": "管道爆炸",
+    "type_code": "0015",
+    "wsa_code": "WSA10015"
+  },
+  {
+    "id": "basic_0016",
+    "name": "可燃气体爆炸",
+    "type_code": "0016",
+    "wsa_code": "WSA10016"
+  },
+  {
+    "id": "basic_0017",
+    "name": "可燃液体蒸气爆炸",
+    "type_code": "0017",
+    "wsa_code": "WSA10017"
+  },
+  {
+    "id": "basic_0018",
+    "name": "粉尘爆炸",
+    "type_code": "0018",
+    "wsa_code": "WSA10018"
+  },
+  {
+    "id": "basic_0019",
+    "name": "民用爆炸物品爆炸",
+    "type_code": "0019",
+    "wsa_code": "WSA10019"
+  },
+  {
+    "id": "basic_0020",
+    "name": "烟花爆竹爆炸",
+    "type_code": "0020",
+    "wsa_code": "WSA10020"
+  },
+  {
+    "id": "basic_0021",
+    "name": "其他可燃固体爆炸",
+    "type_code": "0021",
+    "wsa_code": "WSA10021"
+  },
+  {
+    "id": "basic_0022",
+    "name": "高温熔融物爆炸",
+    "type_code": "0022",
+    "wsa_code": "WSA10022"
+  },
+  {
+    "id": "basic_0023",
+    "name": "中毒",
+    "type_code": "0023",
+    "wsa_code": "WSA10023"
+  },
+  {
+    "id": "basic_0024",
+    "name": "窒息",
+    "type_code": "0024",
+    "wsa_code": "WSA10024"
+  },
+  {
+    "id": "basic_0025",
+    "name": "滑坡",
+    "type_code": "0025",
+    "wsa_code": "WSA10025"
+  },
+  {
+    "id": "basic_0026",
+    "name": "泄漏",
+    "type_code": "0026",
+    "wsa_code": "WSA10026"
+  },
+  {
+    "id": "basic_0099",
+    "name": "其他",
+    "type_code": "0099",
+    "wsa_code": "WSA10099"
+  }
+]

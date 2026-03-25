@@ -288,6 +288,8 @@ def batchify_examples(
                 "pseudo_label_id": ex.get("pseudo_label_id"),
                 "label_confidence": ex.get("label_confidence"),
                 "gold_label": int(ex.get("label", 0)),
+                "task_masks": ex.get("task_masks"),
+                "module_id": ex.get("module_id"),
             }
         )
 

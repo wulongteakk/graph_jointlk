@@ -41,6 +41,7 @@ layer_order:
   - STATE
   - EVENT
   - OUTCOME
+  - CONSEQUENCE
 
 trigger_words:
   zh:
@@ -148,6 +149,13 @@ relation_aliases:
     - inhibit
     - inhibits
     - inhibited
+first_induced:
+  canonical_map:
+    SourceState: SourceState
+    SourceEvent: SourceEvent
+    IntermediateEvent: IntermediateEvent
+    HarmEvent: HarmEvent
+    Consequence: Consequence
 
 beam_search:
   max_hops: 6

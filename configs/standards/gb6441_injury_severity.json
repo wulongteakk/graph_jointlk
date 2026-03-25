@@ -1,0 +1,26 @@
+[
+  {
+    "id": "injury_0001",
+    "name": "零伤亡事故",
+    "type_code": "0001",
+    "wsa_code": "WSA20001"
+  },
+  {
+    "id": "injury_0002",
+    "name": "轻伤事故",
+    "type_code": "0002",
+    "wsa_code": "WSA20002"
+  },
+  {
+    "id": "injury_0003",
+    "name": "重伤事故",
+    "type_code": "0003",
+    "wsa_code": "WSA20003"
+  },
+  {
+    "id": "injury_0004",
+    "name": "死亡事故",
+    "type_code": "0004",
+    "wsa_code": "WSA20004"
+  }
+]
