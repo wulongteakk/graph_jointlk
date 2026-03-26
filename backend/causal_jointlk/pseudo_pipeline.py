@@ -291,6 +291,8 @@ def build_pseudo_label_record(
         "target_text": edge.target_text,
         "target_layer": edge.target_layer,
         "relation_type": edge.relation_type,
+        "label": 1 if int(decision.silver_edge_causal) == 1 else 0,
+        "confidence": float(decision.causal_conf),
         "silver_edge_causal": int(decision.silver_edge_causal),
         "causal_conf": float(decision.causal_conf),
         "silver_edge_enable": int(decision.silver_edge_enable),
