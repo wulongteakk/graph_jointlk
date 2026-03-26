@@ -15,11 +15,11 @@ for p in [str(REPO_ROOT), str(BACKEND_ROOT)]:
 
 from langchain_community.graphs import Neo4jGraph  # type: ignore
 
-from src.causal_jointlk.pseudo_pipeline import (
+from causal_jointlk.pseudo_pipeline import (
     AutoPseudoPipelineConfig,
     run_pseudo_label_pipeline_for_doc,
 )
-from src.causal_jointlk.neo4j_accessor import Neo4jAccessor
+from causal_jointlk.neo4j_accessor import Neo4jAccessor
 
 
 def parse_args() -> argparse.Namespace:

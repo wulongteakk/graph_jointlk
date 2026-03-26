@@ -17,9 +17,9 @@ for p in [str(REPO_ROOT), str(BACKEND_ROOT)]:
 
 from langchain_community.graphs import Neo4jGraph  # type: ignore
 
-from src.causal_jointlk.neo4j_accessor import CandidateEdge, Neo4jAccessor
-from src.causal_jointlk.pseudo_labeler import load_yaml_file
-from src.causal_jointlk.pseudo_pipeline import (
+from causal_jointlk.neo4j_accessor import CandidateEdge, Neo4jAccessor
+from causal_jointlk.pseudo_labeler import load_yaml_file
+from causal_jointlk.pseudo_pipeline import (
     effective_pseudo_label,
     read_doc_evidence_units,
     retrieve_lexical_units,
