@@ -1,7 +1,10 @@
-
 import torch
 import logging
+import re
 from typing import List, Dict, Any, Tuple, Callable
+
+from utils.conceptnet import del_pos, merged_relations
+
 
 
 class GraphDataTransformer:
@@ -24,8 +27,8 @@ class GraphDataTransformer:
         self.concept2id, self.id2concept = self._load_concept_vocab(cpnet_vocab_path)
 
         # 加载仓库的relation2id（基于merged_relations）
-        from JointLK.utils.conceptnet import merged_relations
         self.relation2id = {r: i for i, r in enumerate(merged_relations)}
+        self.merged_relations = merged_relations
         self.merged_relations = merged_relations
         self.relation_name_to_id = {}  # 动态映射关系类型到整数ID
         self.relation_id_counter = 0

@@ -82,8 +82,12 @@ class JointLKInferenceService:
             self.tokenizer = AutoTokenizer.from_pretrained(self.encoder)
 
             # 加载概念嵌入（必须的初始化参数）
-            my_embedding_paths =[r"D:\NEO4J_related\llm-builder\llm\llm-graph-builder\JointLK\data\cpnet\tzw.ent.npy"]
-            self.concept_emb =  [np.load(path) for path in my_embedding_paths]
+            if not self.concept_emb_path:
+                raise ValueError("concept_emb_path is required.")
+            my_embedding_paths = [p for p in str(self.concept_emb_path).split(",") if p.strip()]
+            if not my_embedding_paths:
+                raise ValueError("concept_emb_path is empty.")
+            self.concept_emb = [np.load(path.strip()) for path in my_embedding_paths]
             self.concept_emb = torch.tensor(np.concatenate(self.concept_emb, 1), dtype=torch.float)
             self.concept_num, self.concept_in_dim = self.concept_emb.shape
             target_num, target_dim = 9958, 768
