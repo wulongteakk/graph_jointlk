@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="experiment文件补充">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="jointlk导入检查">
       <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
@@ -21,8 +21,7 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/data_utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/jointlk_integration/data_transformer.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/jointlk_integration/data_transformer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/jointlk_integration/inference_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/jointlk_integration/inference_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_pipeline.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -463,7 +462,15 @@
       <option name="project" value="LOCAL" />
       <updated>1774493163925</updated>
     </task>
-    <option name="localTasksCounter" value="26" />
+    <task id="LOCAL-00026" summary="jointlk导入检查">
+      <option name="closed" value="true" />
+      <created>1774495846577</created>
+      <option name="number" value="00026" />
+      <option name="presentableId" value="LOCAL-00026" />
+      <option name="project" value="LOCAL" />
+      <updated>1774495846577</updated>
+    </task>
+    <option name="localTasksCounter" value="27" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -505,7 +512,8 @@
     <MESSAGE value="文件名修改" />
     <MESSAGE value="删除backend下的train_eval_causal_jointlk.pycausal_jointlk.py和" />
     <MESSAGE value="experiment文件补充" />
-    <option name="LAST_COMMIT_MESSAGE" value="experiment文件补充" />
+    <MESSAGE value="jointlk导入检查" />
+    <option name="LAST_COMMIT_MESSAGE" value="jointlk导入检查" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

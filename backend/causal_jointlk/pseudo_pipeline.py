@@ -49,6 +49,22 @@ def safe_list(value: Any) -> List[Any]:
         return [value]
     return [value]
 
+def _resolve_legacy_config_path(path: Optional[str]) -> Optional[str]:
+    """Resolve historical typo config filenames to canonical files when available."""
+    if not path:
+        return path
+    p = Path(path)
+    if p.exists():
+        return str(p)
+
+    legacy_aliases = {
+        "configs/causal_pseudo_labe_rules.yaml": "configs/causal_pseudo_label_rules.yaml",
+        "configs/casual_candidate_generator.yaml": "configs/causal_candidate_generator.yaml",
+    }
+    mapped = legacy_aliases.get(path)
+    if mapped and Path(mapped).exists():
+        return mapped
+    return path
 
 def relation_unit_ids(rel_props: Dict[str, Any]) -> List[str]:
     unit_ids: List[str] = []
@@ -430,13 +446,13 @@ class AutoPseudoPipelineConfig:
     export_root: str = "./artifacts/manual_review"
     evidence_db_path: str = "./data/evidence_store.sqlite3"
     prior_config_path: str = "configs/causal_prior.yaml"
-    pseudo_rule_config_path: str = "configs/causal_pseudo_labe_rules.yaml"
+    pseudo_rule_config_path: str = "configs/causal_pseudo_label_rules.yaml"
     store_ambiguous: bool = False
     max_edges_per_doc: Optional[int] = None
     max_units_per_doc_scan: int = 500
     lexical_top_k: int = 5
     include_chunk_fallback: bool = True
-    candidate_generator_config_path: str = "configs/casual_candidate_generator.yaml"
+    candidate_generator_config_path: str = "configs/causal_candidate_generator.yaml"
     review_sample_size: int = 200
     review_per_doc_cap: int = 200
     review_per_rule_cap: int = 50
@@ -462,13 +478,13 @@ class AutoPseudoPipelineConfig:
             export_root=os.getenv("AUTO_PSEUDO_LABEL_EXPORT_DIR", "./artifacts/manual_review"),
             evidence_db_path=os.getenv("EVIDENCE_DB_PATH", "./data/evidence_store.sqlite3"),
             prior_config_path=os.getenv("AUTO_PSEUDO_LABEL_PRIOR_CONFIG", "configs/causal_prior.yaml"),
-            pseudo_rule_config_path=os.getenv("AUTO_PSEUDO_LABEL_RULE_CONFIG", "configs/causal_pseudo_labe_rules.yaml"),
+            pseudo_rule_config_path=os.getenv("AUTO_PSEUDO_LABEL_RULE_CONFIG", "configs/causal_pseudo_label_rules.yaml"),
             store_ambiguous=_get_bool("AUTO_PSEUDO_LABEL_STORE_AMBIGUOUS", False),
             max_edges_per_doc=_get_int("AUTO_PSEUDO_LABEL_MAX_EDGES_PER_DOC", None),
             max_units_per_doc_scan=_get_int("AUTO_PSEUDO_LABEL_MAX_UNITS_PER_DOC_SCAN", 500) or 500,
             lexical_top_k=_get_int("AUTO_PSEUDO_LABEL_LEXICAL_TOP_K", 5) or 5,
             include_chunk_fallback=_get_bool("AUTO_PSEUDO_LABEL_INCLUDE_CHUNK_FALLBACK", True),
-            candidate_generator_config_path=os.getenv("AUTO_PSEUDO_LABEL_CANDIDATE_GENERATOR_CONFIG", "configs/casual_candidate_generator.yaml"),
+            candidate_generator_config_path=os.getenv("AUTO_PSEUDO_LABEL_CANDIDATE_GENERATOR_CONFIG", "configs/causal_candidate_generator.yaml"),
             review_sample_size=_get_int("AUTO_PSEUDO_LABEL_REVIEW_SAMPLE_SIZE", 200) or 200,
             review_per_doc_cap=_get_int("AUTO_PSEUDO_LABEL_REVIEW_PER_DOC_CAP", 200) or 200,
             review_per_rule_cap=_get_int("AUTO_PSEUDO_LABEL_REVIEW_PER_RULE_CAP", 50) or 50,
@@ -662,8 +678,14 @@ def run_pseudo_label_pipeline_for_doc(
     if not cfg.enabled:
         return {"ok": False, "skipped": True, "reason": "disabled"}
 
-    prior_cfg = load_yaml_file(cfg.prior_config_path) if cfg.prior_config_path and os.path.exists(cfg.prior_config_path) else {}
-    pseudo_cfg = load_yaml_file(cfg.pseudo_rule_config_path) if cfg.pseudo_rule_config_path and os.path.exists(cfg.pseudo_rule_config_path) else {}
+    prior_cfg_path = _resolve_legacy_config_path(cfg.prior_config_path)
+    pseudo_cfg_path = _resolve_legacy_config_path(cfg.pseudo_rule_config_path)
+    candidate_cfg_path=_resolve_legacy_config_path(cfg.candidate_generator_config_path)
+
+    prior_cfg=load_yaml_file(prior_cfg_path) if prior_cfg_path and os.path.exists(prior_cfg_path) else {}
+    pseudo_cfg = load_yaml_file(pseudo_cfg_path) if pseudo_cfg_path and os.path.exists(pseudo_cfg_path) else {}
+
+
     merged_cfg = merge_prior_and_pseudo_config(prior_cfg, pseudo_cfg)
 
     store = EvidenceStore(cfg.evidence_db_path)
@@ -676,7 +698,7 @@ def run_pseudo_label_pipeline_for_doc(
         max_units=cfg.max_units_per_doc_scan,
     )
 
-    candidate_gen_cfg_raw = load_yaml_file(cfg.candidate_generator_config_path) if cfg.candidate_generator_config_path and os.path.exists(cfg.candidate_generator_config_path) else {}
+    candidate_gen_cfg_raw = load_yaml_file(candidate_cfg_path) if candidate_cfg_path and os.path.exists(candidate_cfg_path) else {}
     candidate_generator = CandidateGenerator(accessor, CandidateGeneratorConfig(**(candidate_gen_cfg_raw or {})))
     doc_edges, candidate_stats = candidate_generator.generate_for_doc(
         doc_id=doc_id,
@@ -796,7 +818,7 @@ def run_pseudo_label_pipeline_for_doc(
             "configs": {
                 "prior_config": cfg.prior_config_path,
                 "pseudo_rule_config": cfg.pseudo_rule_config_path,
-                "candidate_generator_config": cfg.candidate_generator_config_path,
+                "candidate_generator_config": candidate_cfg_path
             },
         },
     )
