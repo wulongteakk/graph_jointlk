@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
+from .schemas import CausalEdge, CausalNode
 
 STRUCTURAL_REL_TYPES = {"PART_OF", "NEXT_CHUNK", "HAS_ENTITY", "_Bloom_Perspective_"}
 
@@ -50,6 +51,133 @@ class Neo4jAccessor:
         if hasattr(self.graph, "execute"):
             return self.graph.execute(query, params)
         raise TypeError("Unsupported graph client: expected LangChain Neo4jGraph-like object with .query().")
+
+    def get_k_hop_subgraph(
+            self,
+            *,
+            seed_node_ids: Sequence[str],
+            prior: Any,
+            k_hop: int = 2,
+            doc_id: Optional[str] = None,
+            kg_scope: str = "instance",
+            kg_id: Optional[str] = None,
+    ) -> Dict[str, List[Any]]:
+        if not seed_node_ids:
+            return {"nodes": [], "edges": []}
+
+        relation_whitelist = sorted(set(str(x).upper() for x in (prior.rel_whitelist if prior else []) if str(x)))
+        raw_edges = self.get_doc_candidate_edges(
+            doc_id=doc_id,
+            kg_scope=kg_scope,
+            kg_id=kg_id,
+            relation_types=relation_whitelist if relation_whitelist else None,
+            limit=None,
+        )
+        if not raw_edges:
+            return {"nodes": [], "edges": []}
+
+        adjacency: Dict[str, List[CandidateEdge]] = {}
+        for edge in raw_edges:
+            adjacency.setdefault(edge.source_node_id, []).append(edge)
+            adjacency.setdefault(edge.target_node_id, []).append(edge)
+
+        seed_set = set(str(x) for x in seed_node_ids if x)
+        visited = set(seed_set)
+        frontier = set(seed_set)
+        selected_edge_keys = set()
+        selected_edges: List[CandidateEdge] = []
+
+        for _ in range(max(1, int(k_hop))):
+            if not frontier:
+                break
+            next_frontier = set()
+            for nid in frontier:
+                for edge in adjacency.get(nid, []):
+                    key = (
+                        edge.source_node_id,
+                        edge.target_node_id,
+                        edge.relation_type,
+                        edge.source_chunk_id,
+                        edge.target_chunk_id,
+                    )
+                    if key not in selected_edge_keys:
+                        selected_edge_keys.add(key)
+                        selected_edges.append(edge)
+                    for neigh in (edge.source_node_id, edge.target_node_id):
+                        if neigh not in visited:
+                            visited.add(neigh)
+                            next_frontier.add(neigh)
+            frontier = next_frontier
+
+        node_map: Dict[str, CausalNode] = {}
+        edge_rows: List[CausalEdge] = []
+        for edge in selected_edges:
+            src_layer = (prior.canonical_layer(edge.source_layer) if prior else (edge.source_layer or "UNK"))
+            tgt_layer = (prior.canonical_layer(edge.target_layer) if prior else (edge.target_layer or "UNK"))
+            src_layer = str(src_layer or "UNK").upper()
+            tgt_layer = str(tgt_layer or "UNK").upper()
+
+            if edge.source_node_id not in node_map:
+                node_map[edge.source_node_id] = CausalNode(
+                    node_id=edge.source_node_id,
+                    text=edge.source_text,
+                    layer=src_layer,
+                    doc_id=edge.doc_id,
+                    kg_scope=edge.kg_scope,
+                    kg_id=edge.kg_id,
+                    labels=edge.source_labels,
+                    properties=edge.source_props,
+                )
+            if edge.target_node_id not in node_map:
+                node_map[edge.target_node_id] = CausalNode(
+                    node_id=edge.target_node_id,
+                    text=edge.target_text,
+                    layer=tgt_layer,
+                    doc_id=edge.doc_id,
+                    kg_scope=edge.kg_scope,
+                    kg_id=edge.kg_id,
+                    labels=edge.target_labels,
+                    properties=edge.target_props,
+                )
+
+            rel = prior.normalize_relation(edge.relation_type, edge.evidence_text) if prior else edge.relation_type
+            edge_id = f"{edge.source_node_id}|{rel}|{edge.target_node_id}"
+            edge_rows.append(
+                CausalEdge(
+                    edge_id=edge_id,
+                    source_id=edge.source_node_id,
+                    target_id=edge.target_node_id,
+                    relation=rel,
+                    source_text=edge.source_text,
+                    target_text=edge.target_text,
+                    source_layer=src_layer,
+                    target_layer=tgt_layer,
+                    evidence_text=edge.evidence_text,
+                    doc_id=edge.doc_id,
+                    kg_scope=edge.kg_scope,
+                    kg_id=edge.kg_id,
+                    label_source=edge.rel_props.get("label_source"),
+                    sample_weight=float(edge.rel_props.get("sample_weight", 1.0)),
+                    meta={
+                        "source_chunk_id": edge.source_chunk_id,
+                        "source_chunk_pos": edge.source_chunk_pos,
+                        "target_chunk_id": edge.target_chunk_id,
+                        "target_chunk_pos": edge.target_chunk_pos,
+                    },
+                )
+            )
+
+        return {"nodes": list(node_map.values()), "edges": edge_rows}
+
+    def hydrate_edge_evidence(self, evidence_store: Any, edges: Sequence[CausalEdge]) -> List[CausalEdge]:
+        out: List[CausalEdge] = []
+        for edge in edges:
+            if edge.evidence_unit_id:
+                unit = evidence_store.get_unit(edge.evidence_unit_id) if evidence_store else None
+                if unit is not None:
+                    edge.evidence_text = edge.evidence_text or getattr(unit, "content", None)
+            out.append(edge)
+        return out
 
     def list_documents(
         self,

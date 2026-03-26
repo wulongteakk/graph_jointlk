@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="jointlk输入修正2.0">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="jointlk输入修正3.0">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
@@ -20,7 +20,7 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/data_utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_pipeline.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/neo4j_accessor.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/neo4j_accessor.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -493,7 +493,15 @@
       <option name="project" value="LOCAL" />
       <updated>1774511866584</updated>
     </task>
-    <option name="localTasksCounter" value="30" />
+    <task id="LOCAL-00030" summary="jointlk输入修正3.0">
+      <option name="closed" value="true" />
+      <created>1774512508734</created>
+      <option name="number" value="00030" />
+      <option name="presentableId" value="LOCAL-00030" />
+      <option name="project" value="LOCAL" />
+      <updated>1774512508735</updated>
+    </task>
+    <option name="localTasksCounter" value="31" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -511,7 +519,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="qa_gnn" />
     <MESSAGE value="qa_gnn初级可用" />
     <MESSAGE value="剪枝后的节点和关系作为上下文输入进大模型" />
     <MESSAGE value="增加量化模块" />
@@ -536,7 +543,8 @@
     <MESSAGE value="名称修正" />
     <MESSAGE value="jointlk输入修正" />
     <MESSAGE value="jointlk输入修正2.0" />
-    <option name="LAST_COMMIT_MESSAGE" value="jointlk输入修正2.0" />
+    <MESSAGE value="jointlk输入修正3.0" />
+    <option name="LAST_COMMIT_MESSAGE" value="jointlk输入修正3.0" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
