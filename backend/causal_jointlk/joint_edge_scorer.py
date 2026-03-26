@@ -35,6 +35,11 @@ class CausalJointLKEdgeScorer:
         self.checkpoint = torch.load(checkpoint_path, map_location="cpu")
         args = self.checkpoint.get("args", {})
         self.model_name = args.get("model_name", "roberta-large")
+        self.best_threshold = float(self.checkpoint.get("best_threshold", 0.5))
+
+        # 推理阶段优先使用 checkpoint 里保存的映射，避免训练后 prior 配置变更导致 id 漂移。
+        self.relation_to_id = dict(self.checkpoint.get("relation_to_id") or self.relation_to_id)
+        self.node_type_to_id = dict(self.checkpoint.get("node_type_to_id") or self.node_type_to_id)
 
         tokenizer_dir = Path(checkpoint_path).parent / "tokenizer"
         if tokenizer_dir.exists():
@@ -44,8 +49,8 @@ class CausalJointLKEdgeScorer:
 
         self.model = CausalJointLKModel(
             model_name=self.model_name,
-            num_relations=len(self.checkpoint["relation_to_id"]),
-            num_node_types=len(self.checkpoint["node_type_to_id"]),
+            num_relations=len(self.relation_to_id),
+            num_node_types=len(self.node_type_to_id),
             hidden_size=int(args.get("hidden_size", 256)),
             num_gnn_layers=int(args.get("num_gnn_layers", 3)),
             dropout=float(args.get("dropout", 0.2)),
@@ -81,6 +86,11 @@ class CausalJointLKEdgeScorer:
             if edge.source_id not in node_id_to_idx or edge.target_id not in node_id_to_idx:
                 continue
 
+            valid_graph_edges = [
+                e
+                for e in edges
+                if e.source_id in node_id_to_idx and e.target_id in node_id_to_idx
+            ]
             candidate_units = evidence_by_edge_id.get(edge.edge_id) or []
             if edge.evidence_text:
                 candidate_units = [{"unit_id": edge.evidence_unit_id, "content": edge.evidence_text}] + candidate_units
@@ -106,10 +116,13 @@ class CausalJointLKEdgeScorer:
                     "node_layer_types": node_layers,
                     "node_scores": [0.0] * len(node_texts),
                     "edge_index": [
-                        [node_id_to_idx[e.source_id] for e in edges if e.source_id in node_id_to_idx and e.target_id in node_id_to_idx],
-                        [node_id_to_idx[e.target_id] for e in edges if e.source_id in node_id_to_idx and e.target_id in node_id_to_idx],
+                        [node_id_to_idx[e.source_id] for e in valid_graph_edges],
+                        [node_id_to_idx[e.target_id] for e in valid_graph_edges],
                     ],
-                    "edge_types": [self.prior.normalize_relation(e.relation, e.evidence_text) for e in edges],
+                    "edge_types": [
+                        self.prior.normalize_relation(e.relation, e.evidence_text)
+                        for e in valid_graph_edges
+                    ],
                     "source_idx": node_id_to_idx[edge.source_id],
                     "target_idx": node_id_to_idx[edge.target_id],
                     "label": 0,
@@ -141,7 +154,7 @@ class CausalJointLKEdgeScorer:
                                            node_first_probs):
             edge.score = float(p)
             edge.support_score = float(p)
-            edge.supported = bool(p >= 0.5)
+            edge.supported = bool(p >= self.best_threshold)
             edge.p_causal = float(p)
             edge.p_enable = float(pe)
             edge.p_dir = float(pd)
