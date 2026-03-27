@@ -46,19 +46,29 @@ class IntegrationFacade:
     def process_query(self, question: str, nodes: list, relationships: list, detail: bool = False) -> dict:
         if not self.transformer:
             return {"error": "Service not initialized."}
+        if not isinstance(nodes, list) or not isinstance(relationships, list):
+            return {"error": "Invalid graph payload: nodes/relationships must be list."}
 
         try:
             prepared_data = self.transformer.format_for_jointlk(nodes, relationships, question)
+            metadata = prepared_data.get("metadata", {})
+            if metadata.get("processed_nodes", 0) <= 0:
+                return {
+                    "error": "No usable concept node can be mapped into JointLK vocabulary.",
+                    "metadata": metadata,
+                }
             inference_result = self.inference_service.run_inference(prepared_data, detail=detail)
             return {
                 "answer": inference_result.get("answer"),
                 "visualization_data": inference_result.get("visualization_data"),
                 "source": "JointLK Enhanced Reasoning",
-                "metadata": prepared_data.get("metadata"),
+                "metadata": metadata,
             }
         except Exception as e:
             logging.error("Error processing query through JointLK facade: %s", e, exc_info=True)
             return {"error": "An internal error occurred during reasoning."}
+
+
 
 
 try:

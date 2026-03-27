@@ -1,22 +1,18 @@
-
-
 import torch
 import os
 import sys
 import logging
-from typing import List, Dict, Any, Tuple, Callable
-from transformers import RobertaTokenizer, RobertaConfig
+from typing import Dict, Any
 import numpy as np
 import argparse
 # --- 动态添加 JointLK 库到 Python 路径 ---
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(script_dir, '../../../'))  # 回退三层到 llm-graph-builder-private/
+
 jointlk_path = os.path.join(project_root, 'JointLK')
-print(f"jointlk_path: {jointlk_path}")  # 应输出 .../llm-graph-builder/JointLK
 if jointlk_path not in sys.path:
     sys.path.insert(0, jointlk_path)  # 优先导入正确的 JointLK 目录
-
 
 # --- 导入 JointLK 模型 ---
 try:
@@ -71,6 +67,7 @@ class JointLKInferenceService:
         self.model = None
         self.tokenizer = None
         self.concept_emb = None  # 概念嵌入张量
+        self.args = None
 
 
     def load_model(self):
@@ -87,6 +84,10 @@ class JointLKInferenceService:
             my_embedding_paths = [p for p in str(self.concept_emb_path).split(",") if p.strip()]
             if not my_embedding_paths:
                 raise ValueError("concept_emb_path is empty.")
+            for path in my_embedding_paths:
+                if not os.path.exists(path.strip()):
+                    raise FileNotFoundError(f"Concept embedding file not found: {path.strip()}")
+
             self.concept_emb = [np.load(path.strip()) for path in my_embedding_paths]
             self.concept_emb = torch.tensor(np.concatenate(self.concept_emb, 1), dtype=torch.float)
             self.concept_num, self.concept_in_dim = self.concept_emb.shape
@@ -109,25 +110,33 @@ class JointLKInferenceService:
                 self.args = old_args
 
                 # 实例化模型
-                self.model = JOINT_LM_KG(old_args, old_args.encoder, k=old_args.k, n_ntype=4, n_etype=old_args.num_relation, n_concept=self.concept_num,
-                               concept_dim=old_args.gnn_dim,
-                               concept_in_dim=self.concept_in_dim ,
-                               n_attention_head=old_args.att_head_num, fc_dim=old_args.fc_dim, n_fc_layer=old_args.fc_layer_num,
-                               p_emb=old_args.dropouti, p_gnn=old_args.dropoutg, p_fc=old_args.dropoutf,
-                               pretrained_concept_emb=self.concept_emb, freeze_ent_emb=old_args.freeze_ent_emb,
-                               init_range=old_args.init_range,
-                               encoder_config={}
-                )
+                n_etype = getattr(old_args, "num_relation", getattr(old_args, "num_relations", self.num_relations))
+                self.model = JOINT_LM_KG(old_args, old_args.encoder, k=old_args.k, n_ntype=4, n_etype=n_etype,
+                                         n_concept=self.concept_num,
+                                         concept_dim=old_args.gnn_dim,
+                                         concept_in_dim=self.concept_in_dim,
+                                         n_attention_head=old_args.att_head_num, fc_dim=old_args.fc_dim,
+                                         n_fc_layer=old_args.fc_layer_num,
+                                         p_emb=old_args.dropouti, p_gnn=old_args.dropoutg, p_fc=old_args.dropoutf,
+                                         pretrained_concept_emb=self.concept_emb,
+                                         freeze_ent_emb=old_args.freeze_ent_emb,
+                                         init_range=old_args.init_range,
+                                         encoder_config={}
+                                         )
                 # print(checkpoint)
                 self.model.load_state_dict(model_state_dict, strict=False)
 
             else:
-                logging.warning(f"Checkpoint file not found at {self.model_checkpoint_path}. Using base model weights.")
+                raise FileNotFoundError(f"Checkpoint file not found: {self.model_checkpoint_path}")
 
-            # 部署到设备并设为推理模式
+                # 部署到设备并设为推理模式
+            if self.model is None:
+                raise RuntimeError("JointLK model initialization failed.")
             self.model.encoder.to(self.device)
             self.model.decoder.to(self.device)
             self.model.eval()
+
+
 
             logging.info("JointLK model loaded successfully.")
 
@@ -135,7 +144,7 @@ class JointLKInferenceService:
             logging.error(f"Failed to load JointLK model: {e}", exc_info=True)
             raise
 
-    def run_inference(self, prepared_input: Dict[str, Any],  detail: bool = False) -> str:
+    def run_inference(self, prepared_input: Dict[str, Any],  detail: bool = False) -> Dict[str, Any]:
         if self.model is None or self.tokenizer is None:
             logging.error("Model not loaded. Call load_model() first.")
             return {"answer": "Error: Model not initialized.", "visualization_data": None}
