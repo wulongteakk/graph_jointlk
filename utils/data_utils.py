@@ -38,13 +38,10 @@ class MultiGPUSparseAdjDataBatchGenerator(object):
     def __iter__(self):
         bs = self.batch_size
         n = self.indexes.size(0)
-        return (self.indexes.size(0) - 1) // self.batch_size + 1
-
-    def __iter__(self):
-        bs = self.batch_size
         if self.mode=='train' and self.args.drop_partial_batch:
             print ('dropping partial batch')
             n = (n//bs) *bs
+
         elif self.mode=='train' and self.args.fill_partial_batch:
             print ('filling partial batch')
             remain = n % bs
@@ -82,7 +79,7 @@ class MultiGPUSparseAdjDataBatchGenerator(object):
 
 def load_sparse_adj_data_with_contextnode(adj_pk_path, max_node_num, num_choice, args):
     cache_path = adj_pk_path +'.loaded_cache'
-    use_cache = True
+    use_cache = getattr(args, 'use_cache', True)
 
     if use_cache and not os.path.exists(cache_path):
         use_cache = False

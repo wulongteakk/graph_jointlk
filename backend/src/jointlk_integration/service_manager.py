@@ -50,7 +50,8 @@ class IntegrationFacade:
             return {"error": "Invalid graph payload: nodes/relationships must be list."}
 
         try:
-            prepared_data = self.transformer.format_for_jointlk(nodes, relationships, question)
+            prepared_data = self.transformer.format_for_jointlk(nodes,
+                                                                relationships, question)
             metadata = prepared_data.get("metadata", {})
             if metadata.get("processed_nodes", 0) <= 0:
                 return {
