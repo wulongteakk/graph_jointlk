@@ -50,6 +50,54 @@ def compute_binary_edge_metrics(
 
     return metrics
 
+def compute_masked_binary_metrics(
+    gold: Sequence[int],
+    prob: Sequence[float],
+    mask: Sequence[int],
+    *,
+    prefix: str,
+    threshold: float = 0.5,
+) -> Dict[str, float]:
+    assert len(gold) == len(prob) == len(mask), "gold/prob/mask length mismatch"
+    indices = [i for i, m in enumerate(mask) if int(m) > 0]
+    if not indices:
+        return {
+            f"{prefix}_precision": 0.0,
+            f"{prefix}_recall": 0.0,
+            f"{prefix}_f1": 0.0,
+            f"{prefix}_accuracy": 0.0,
+            f"{prefix}_threshold": float(threshold),
+            f"{prefix}_support": 0.0,
+        }
+
+    gold_masked = [int(gold[i]) for i in indices]
+    prob_masked = [float(prob[i]) for i in indices]
+    raw = compute_binary_edge_metrics(gold_masked, prob_masked, threshold=threshold)
+    metrics = {
+        f"{prefix}_precision": float(raw.get("edge_precision", 0.0)),
+        f"{prefix}_recall": float(raw.get("edge_recall", 0.0)),
+        f"{prefix}_f1": float(raw.get("edge_f1", 0.0)),
+        f"{prefix}_accuracy": float(raw.get("edge_accuracy", 0.0)),
+        f"{prefix}_threshold": float(threshold),
+        f"{prefix}_support": float(len(indices)),
+    }
+    if "edge_auroc" in raw:
+        metrics[f"{prefix}_auroc"] = float(raw["edge_auroc"])
+    if "edge_aupr" in raw:
+        metrics[f"{prefix}_aupr"] = float(raw["edge_aupr"])
+    return metrics
+
+
+def compute_joint_score(metrics: Dict[str, Any]) -> float:
+    return (
+        0.40 * float(metrics.get("edge_f1", 0.0))
+        + 0.10 * float(metrics.get("enable_f1", 0.0))
+        + 0.10 * float(metrics.get("dir_f1", 0.0))
+        + 0.10 * float(metrics.get("temp_f1", 0.0))
+        + 0.10 * float(metrics.get("src_first_f1", 0.0))
+        + 0.10 * float(metrics.get("dst_first_f1", 0.0))
+        + 0.10 * float(metrics.get("rel_micro_f1", 0.0))
+    )
 
 def tune_binary_threshold(
     gold: Sequence[int],

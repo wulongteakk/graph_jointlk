@@ -131,7 +131,7 @@ class CausalJointLKService:
         )
 
         node_prior_rows = self.node_prior_builder.build(nodes, scored_edges)
-        branches = self.branch_builder.build(chains)
+        branches = self.branch_builder.build(nodes, scored_edges, chains)
         decision = self.branch_decoder.decide(branches)
         if decision.needs_severity_fallback:
             branches = list(self.severity_ranker.rerank(branches))

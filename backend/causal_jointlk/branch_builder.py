@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Dict, List, Sequence
 
-from .schemas import CandidateBranch, CandidateChain, CausalEdge
+from .schemas import CandidateBranch, CandidateChain, CausalEdge,CausalNode
 
 
 class BranchBuilder:
@@ -17,7 +17,19 @@ class BranchBuilder:
         "爆炸": ["爆炸", "爆燃"],
     }
 
-    def build(self, chains: Sequence[CandidateChain]) -> List[CandidateBranch]:
+    def build(
+        self,
+        nodes: Sequence[CausalNode],
+        edges: Sequence[CausalEdge],
+        chains: Sequence[CandidateChain],
+    ) -> List[CandidateBranch]:
+        node_map = {n.node_id: n for n in nodes}
+        graph_outgoing: Dict[str, List[CausalEdge]] = defaultdict(list)
+        graph_incoming: Dict[str, List[CausalEdge]] = defaultdict(list)
+        for edge in edges:
+            graph_outgoing[edge.source_id].append(edge)
+            graph_incoming[edge.target_id].append(edge)
+
         grouped: Dict[str, CandidateBranch] = {}
         for idx, chain in enumerate(chains):
             path_nodes = list(chain.nodes)
@@ -51,6 +63,7 @@ class BranchBuilder:
                         "module_id": self._infer_module_id(path_edges),
                         "scenario_tags": self._infer_scenario_tags(path_edges),
                         "basic_type_scores": self._score_basic_types(path_edges),
+                        "edge_ids": [e.edge_id for e in path_edges if e.edge_id],
                     },
                 )
             else:
@@ -66,9 +79,72 @@ class BranchBuilder:
                 for key, val in self._score_basic_types(path_edges).items():
                     merged_scores[key] = max(float(merged_scores.get(key, 0.0)), float(val))
                 b.meta["basic_type_scores"] = merged_scores
+                edge_ids = list(dict.fromkeys((b.meta.get("edge_ids") or []) + [e.edge_id for e in path_edges if e.edge_id]))
+                b.meta["edge_ids"] = edge_ids
+
+        for branch in grouped.values():
+            branch.path_edges = self._merge_graph_edges(branch.path_nodes, branch.path_edges, graph_outgoing)
+            branch.root_nodes = self._infer_graph_roots(branch.path_nodes, graph_incoming)
+            branch.evidence_unit_ids = list(
+                dict.fromkeys(
+                    branch.evidence_unit_ids
+                    + [e.evidence_unit_id for e in branch.path_edges if e.evidence_unit_id]
+                    + self._collect_node_evidence(branch.path_nodes, node_map)
+                )
+            )
+            graph_type_scores = self._score_basic_types(branch.path_edges)
+            branch.meta["basic_type_scores"] = self._merge_scores(
+                branch.meta.get("basic_type_scores") or {},
+                graph_type_scores,
+            )
+            branch.basic_type_candidates = [
+                name for name, _ in sorted((branch.meta.get("basic_type_scores") or {}).items(), key=lambda x: x[1], reverse=True)
+            ]
+            branch.meta["graph_stats"] = {
+                "num_nodes": len(branch.path_nodes),
+                "num_edges": len(branch.path_edges),
+                "num_root_nodes": len(branch.root_nodes),
+                "num_consequence_nodes": len(branch.consequence_nodes),
+            }
 
         branches = sorted(grouped.values(), key=lambda x: x.score, reverse=True)
         return branches
+
+    @staticmethod
+    def _collect_node_evidence(node_ids: Sequence[str], node_map: Dict[str, CausalNode]) -> List[str]:
+        rows: List[str] = []
+        for node_id in node_ids:
+            node = node_map.get(node_id)
+            if node is None:
+                continue
+            rows.extend(node.evidence_unit_ids or [])
+        return rows
+
+    @staticmethod
+    def _merge_scores(base_scores: Dict[str, float], add_scores: Dict[str, float]) -> Dict[str, float]:
+        merged = dict(base_scores)
+        for key, val in add_scores.items():
+            merged[key] = max(float(merged.get(key, 0.0)), float(val))
+        return merged
+
+    @staticmethod
+    def _merge_graph_edges(path_nodes: Sequence[str], path_edges: Sequence[CausalEdge], graph_outgoing: Dict[str, List[CausalEdge]]) -> List[CausalEdge]:
+        merged = {e.edge_id: e for e in path_edges if e.edge_id}
+        for node_id in path_nodes:
+            for edge in graph_outgoing.get(node_id, []):
+                if edge.target_id in path_nodes and edge.edge_id:
+                    merged[edge.edge_id] = edge
+        return list(merged.values()) if merged else list(path_edges)
+
+    @staticmethod
+    def _infer_graph_roots(path_nodes: Sequence[str], graph_incoming: Dict[str, List[CausalEdge]]) -> List[str]:
+        rows: List[str] = []
+        path_set = set(path_nodes)
+        for node_id in path_nodes:
+            incoming = [e for e in graph_incoming.get(node_id, []) if e.source_id in path_set]
+            if not incoming:
+                rows.append(node_id)
+        return rows or ([path_nodes[0]] if path_nodes else [])
 
     def _infer_harm_node(self, edges: Sequence[CausalEdge], path_nodes: Sequence[str]) -> str | None:
         for edge in reversed(edges):

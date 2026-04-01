@@ -20,6 +20,7 @@ from experiments.causal_jointlk.metrics import (
     compute_binary_edge_metrics,
     compute_breakdown_by_field,
     compute_grouped_ranking_metrics,
+    compute_masked_binary_metrics,
     compute_relation_metrics,
 )
 from modeling.causal_jointlk_io import batchify_examples
@@ -50,15 +51,39 @@ def run_eval(model, data_loader, device, threshold, id_to_relation):
     gold_rel: List[int] = []
     pred_rel: List[int] = []
     rows: List[Dict[str, Any]] = []
+    multitask: Dict[str, Dict[str, List[float]]] = {
+        "enable": {"gold": [], "prob": [], "mask": []},
+        "dir": {"gold": [], "prob": [], "mask": []},
+        "temp": {"gold": [], "prob": [], "mask": []},
+        "src_first": {"gold": [], "prob": [], "mask": []},
+        "dst_first": {"gold": [], "prob": [], "mask": []},
+    }
 
     for batch in data_loader:
         meta_rows = batch.get("meta_rows", [])
+        batch_cpu = {
+            "enable_labels": batch.get("enable_labels"),
+            "enable_mask": batch.get("enable_mask"),
+            "dir_labels": batch.get("dir_labels"),
+            "dir_mask": batch.get("dir_mask"),
+            "temp_labels": batch.get("temp_labels"),
+            "temp_mask": batch.get("temp_mask"),
+            "src_first_labels": batch.get("src_first_labels"),
+            "src_first_mask": batch.get("src_first_mask"),
+            "dst_first_labels": batch.get("dst_first_labels"),
+            "dst_first_mask": batch.get("dst_first_mask"),
+        }
         for key, value in list(batch.items()):
             if torch.is_tensor(value):
                 batch[key] = value.to(device)
 
         outputs = model(batch)
         pred_prob = outputs["support_prob"].detach().cpu().tolist()
+        enable_prob = outputs["enable_prob"].detach().cpu().tolist()
+        dir_prob = outputs["dir_prob"].detach().cpu().tolist()
+        temp_prob = outputs["temporal_prob"].detach().cpu().tolist()
+        src_first_prob = outputs["src_first_prob"].detach().cpu().tolist()
+        dst_first_prob = outputs["dst_first_prob"].detach().cpu().tolist()
         pred_rel_batch = outputs["relation_logits"].argmax(dim=-1).detach().cpu().tolist()
         gold_batch = batch["labels"].long().detach().cpu().tolist()
         gold_rel_batch = batch["relation_labels"].detach().cpu().tolist()
@@ -67,10 +92,42 @@ def run_eval(model, data_loader, device, threshold, id_to_relation):
         prob.extend(pred_prob)
         gold_rel.extend(gold_rel_batch)
         pred_rel.extend(pred_rel_batch)
+        multitask["enable"]["gold"].extend(batch_cpu["enable_labels"].long().detach().cpu().tolist())
+        multitask["enable"]["mask"].extend(batch_cpu["enable_mask"].long().detach().cpu().tolist())
+        multitask["enable"]["prob"].extend(enable_prob)
+        multitask["dir"]["gold"].extend(batch_cpu["dir_labels"].long().detach().cpu().tolist())
+        multitask["dir"]["mask"].extend(batch_cpu["dir_mask"].long().detach().cpu().tolist())
+        multitask["dir"]["prob"].extend(dir_prob)
+        multitask["temp"]["gold"].extend(batch_cpu["temp_labels"].long().detach().cpu().tolist())
+        multitask["temp"]["mask"].extend(batch_cpu["temp_mask"].long().detach().cpu().tolist())
+        multitask["temp"]["prob"].extend(temp_prob)
+        multitask["src_first"]["gold"].extend(batch_cpu["src_first_labels"].long().detach().cpu().tolist())
+        multitask["src_first"]["mask"].extend(batch_cpu["src_first_mask"].long().detach().cpu().tolist())
+        multitask["src_first"]["prob"].extend(src_first_prob)
+        multitask["dst_first"]["gold"].extend(batch_cpu["dst_first_labels"].long().detach().cpu().tolist())
+        multitask["dst_first"]["mask"].extend(batch_cpu["dst_first_mask"].long().detach().cpu().tolist())
+        multitask["dst_first"]["prob"].extend(dst_first_prob)
 
-        for meta, p, y, gr, pr in zip(meta_rows, pred_prob, gold_batch, gold_rel_batch, pred_rel_batch):
+        for meta, p, e_p, d_p, t_p, sf_p, df_p, y, gr, pr in zip(
+                meta_rows,
+                pred_prob,
+                enable_prob,
+                dir_prob,
+                temp_prob,
+                src_first_prob,
+                dst_first_prob,
+                gold_batch,
+                gold_rel_batch,
+                pred_rel_batch,
+        ):
             row = dict(meta)
             row["support_prob"] = float(p)
+            row["causal_prob"] = float(p)
+            row["enable_prob"] = float(e_p)
+            row["dir_prob"] = float(d_p)
+            row["temporal_prob"] = float(t_p)
+            row["src_first_prob"] = float(sf_p)
+            row["dst_first_prob"] = float(df_p)
             row["pred_label"] = int(float(p) >= threshold)
             row["gold_label"] = int(y)
             row["gold_relation_id"] = int(gr)
@@ -82,6 +139,11 @@ def run_eval(model, data_loader, device, threshold, id_to_relation):
     metrics = {}
     metrics.update(compute_binary_edge_metrics(gold, prob, threshold=threshold))
     metrics.update(compute_relation_metrics(gold_rel, pred_rel))
+    metrics.update(compute_masked_binary_metrics(**multitask["enable"], prefix="enable", threshold=threshold))
+    metrics.update(compute_masked_binary_metrics(**multitask["dir"], prefix="dir", threshold=threshold))
+    metrics.update(compute_masked_binary_metrics(**multitask["temp"], prefix="temp", threshold=threshold))
+    metrics.update(compute_masked_binary_metrics(**multitask["src_first"], prefix="src_first", threshold=threshold))
+    metrics.update(compute_masked_binary_metrics(**multitask["dst_first"], prefix="dst_first", threshold=threshold))
     metrics["ranking_by_doc"] = compute_grouped_ranking_metrics(rows, group_keys=["doc_id"])
     metrics["ranking_by_doc_source"] = compute_grouped_ranking_metrics(rows, group_keys=["doc_id", "source_node_id"])
     metrics["breakdown_by_label_source"] = compute_breakdown_by_field(rows, field="label_source", threshold=threshold)

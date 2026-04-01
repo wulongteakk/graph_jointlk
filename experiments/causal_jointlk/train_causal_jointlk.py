@@ -24,6 +24,8 @@ from experiments.causal_jointlk.metrics import (
     compute_binary_edge_metrics,
     compute_breakdown_by_field,
     compute_grouped_ranking_metrics,
+    compute_joint_score,
+    compute_masked_binary_metrics,
     compute_relation_metrics,
     tune_binary_threshold,
 )
@@ -98,7 +100,18 @@ def evaluate(
     gold_rel: List[int] = []
     pred_rel: List[int] = []
     losses: List[float] = []
+    causal_losses: List[float] = []
+    relation_losses: List[float] = []
+    aux_losses: List[float] = []
+    cf_losses: List[float] = []
     rows: List[Dict[str, Any]] = []
+    multitask: Dict[str, Dict[str, List[float]]] = {
+        "enable": {"gold": [], "prob": [], "mask": []},
+        "dir": {"gold": [], "prob": [], "mask": []},
+        "temp": {"gold": [], "prob": [], "mask": []},
+        "src_first": {"gold": [], "prob": [], "mask": []},
+        "dst_first": {"gold": [], "prob": [], "mask": []},
+    }
 
     pos_weight_tensor = None
     if pos_weight_value is not None:
@@ -134,9 +147,18 @@ def evaluate(
             cf_roles=batch.get("cf_roles"),
         )
         losses.append(float(loss_dict["loss"].detach().cpu()))
+        causal_losses.append(float(loss_dict["support_loss"].detach().cpu()))
+        relation_losses.append(float(loss_dict["relation_loss"].detach().cpu()))
+        aux_losses.append(float(loss_dict["aux_loss"].detach().cpu()))
+        cf_losses.append(float(loss_dict["cf_loss"].detach().cpu()))
 
         batch_gold = batch["labels"].long().detach().cpu().tolist()
         batch_prob = outputs["support_prob"].detach().cpu().tolist()
+        enable_prob = outputs["enable_prob"].detach().cpu().tolist()
+        dir_prob = outputs["dir_prob"].detach().cpu().tolist()
+        temp_prob = outputs["temporal_prob"].detach().cpu().tolist()
+        src_first_prob = outputs["src_first_prob"].detach().cpu().tolist()
+        dst_first_prob = outputs["dst_first_prob"].detach().cpu().tolist()
         batch_gold_rel = batch["relation_labels"].detach().cpu().tolist()
         batch_pred_rel = outputs["relation_logits"].argmax(dim=-1).detach().cpu().tolist()
 
@@ -144,10 +166,42 @@ def evaluate(
         prob.extend(batch_prob)
         gold_rel.extend(batch_gold_rel)
         pred_rel.extend(batch_pred_rel)
+        multitask["enable"]["gold"].extend(batch["enable_labels"].long().detach().cpu().tolist())
+        multitask["enable"]["mask"].extend(batch["enable_mask"].long().detach().cpu().tolist())
+        multitask["enable"]["prob"].extend(enable_prob)
+        multitask["dir"]["gold"].extend(batch["dir_labels"].long().detach().cpu().tolist())
+        multitask["dir"]["mask"].extend(batch["dir_mask"].long().detach().cpu().tolist())
+        multitask["dir"]["prob"].extend(dir_prob)
+        multitask["temp"]["gold"].extend(batch["temp_labels"].long().detach().cpu().tolist())
+        multitask["temp"]["mask"].extend(batch["temp_mask"].long().detach().cpu().tolist())
+        multitask["temp"]["prob"].extend(temp_prob)
+        multitask["src_first"]["gold"].extend(batch["src_first_labels"].long().detach().cpu().tolist())
+        multitask["src_first"]["mask"].extend(batch["src_first_mask"].long().detach().cpu().tolist())
+        multitask["src_first"]["prob"].extend(src_first_prob)
+        multitask["dst_first"]["gold"].extend(batch["dst_first_labels"].long().detach().cpu().tolist())
+        multitask["dst_first"]["mask"].extend(batch["dst_first_mask"].long().detach().cpu().tolist())
+        multitask["dst_first"]["prob"].extend(dst_first_prob)
 
-        for meta, p, y, gr, pr in zip(meta_rows, batch_prob, batch_gold, batch_gold_rel, batch_pred_rel):
+        for meta, p, e_p, d_p, t_p, sf_p, df_p, y, gr, pr in zip(
+                meta_rows,
+                batch_prob,
+                enable_prob,
+                dir_prob,
+                temp_prob,
+                src_first_prob,
+                dst_first_prob,
+                batch_gold,
+                batch_gold_rel,
+                batch_pred_rel,
+        ):
             row = dict(meta)
             row["support_prob"] = float(p)
+            row["causal_prob"] = float(p)
+            row["enable_prob"] = float(e_p)
+            row["dir_prob"] = float(d_p)
+            row["temporal_prob"] = float(t_p)
+            row["src_first_prob"] = float(sf_p)
+            row["dst_first_prob"] = float(df_p)
             row["gold_label"] = int(y)
             row["gold_relation_id"] = int(gr)
             row["pred_relation_id"] = int(pr)
@@ -162,14 +216,26 @@ def evaluate(
     else:
         threshold = float(threshold if threshold is not None else 0.5)
 
-    metrics: Dict[str, Any] = {"loss": sum(losses) / max(len(losses), 1)}
+    metrics: Dict[str, Any] = {
+        "loss": sum(losses) / max(len(losses), 1),
+        "causal_loss": sum(causal_losses) / max(len(causal_losses), 1),
+        "relation_loss": sum(relation_losses) / max(len(relation_losses), 1),
+        "aux_loss": sum(aux_losses) / max(len(aux_losses), 1),
+        "cf_loss": sum(cf_losses) / max(len(cf_losses), 1),
+    }
     metrics.update(compute_binary_edge_metrics(gold, prob, threshold=threshold))
     metrics.update(compute_relation_metrics(gold_rel, pred_rel))
+    metrics.update(compute_masked_binary_metrics(**multitask["enable"], prefix="enable", threshold=threshold))
+    metrics.update(compute_masked_binary_metrics(**multitask["dir"], prefix="dir", threshold=threshold))
+    metrics.update(compute_masked_binary_metrics(**multitask["temp"], prefix="temp", threshold=threshold))
+    metrics.update(compute_masked_binary_metrics(**multitask["src_first"], prefix="src_first", threshold=threshold))
+    metrics.update(compute_masked_binary_metrics(**multitask["dst_first"], prefix="dst_first", threshold=threshold))
     metrics["best_threshold"] = threshold
     metrics["ranking_by_doc"] = compute_grouped_ranking_metrics(rows, group_keys=["doc_id"])
     metrics["ranking_by_doc_source"] = compute_grouped_ranking_metrics(rows, group_keys=["doc_id", "source_node_id"])
     metrics["breakdown_by_label_source"] = compute_breakdown_by_field(rows, field="label_source", threshold=threshold)
     metrics["breakdown_by_review_status"] = compute_breakdown_by_field(rows, field="review_status", threshold=threshold)
+    metrics["joint_score"] = compute_joint_score(metrics)
     return metrics, rows
 
 
@@ -284,6 +350,10 @@ def main() -> None:
     for epoch in range(1, args.epochs + 1):
         model.train()
         epoch_losses: List[float] = []
+        epoch_causal_losses: List[float] = []
+        epoch_relation_losses: List[float] = []
+        epoch_aux_losses: List[float] = []
+        epoch_cf_losses: List[float] = []
 
         for batch in tqdm(train_loader, desc=f"train epoch {epoch}", leave=False):
             for key, value in list(batch.items()):
@@ -320,6 +390,10 @@ def main() -> None:
             optimizer.step()
             scheduler.step()
             epoch_losses.append(float(loss.detach().cpu()))
+            epoch_causal_losses.append(float(loss_dict["support_loss"].detach().cpu()))
+            epoch_relation_losses.append(float(loss_dict["relation_loss"].detach().cpu()))
+            epoch_aux_losses.append(float(loss_dict["aux_loss"].detach().cpu()))
+            epoch_cf_losses.append(float(loss_dict["cf_loss"].detach().cpu()))
 
         dev_metrics, _ = evaluate(
             model=model,
@@ -333,12 +407,16 @@ def main() -> None:
         )
         dev_metrics["epoch"] = epoch
         dev_metrics["train_loss"] = sum(epoch_losses) / max(len(epoch_losses), 1)
+        dev_metrics["train_causal_loss"] = sum(epoch_causal_losses) / max(len(epoch_causal_losses), 1)
+        dev_metrics["train_relation_loss"] = sum(epoch_relation_losses) / max(len(epoch_relation_losses), 1)
+        dev_metrics["train_aux_loss"] = sum(epoch_aux_losses) / max(len(epoch_aux_losses), 1)
+        dev_metrics["train_cf_loss"] = sum(epoch_cf_losses) / max(len(epoch_cf_losses), 1)
         dev_metrics["pos_weight"] = pos_weight_value
         history.append(dev_metrics)
 
-        current_metric = float(dev_metrics.get("edge_f1", 0.0))
+        current_metric = float(dev_metrics.get("joint_score", 0.0))
         current_threshold = float(dev_metrics.get("best_threshold", 0.5))
-        print(json.dumps(dev_metrics, ensure_ascii=False, indent=2))
+        print("[JointLK][epoch-summary]", json.dumps(dev_metrics, ensure_ascii=False))
 
         if current_metric > best_metric:
             best_metric = current_metric
@@ -360,7 +438,8 @@ def main() -> None:
             fout.write(json.dumps(dev_metrics, ensure_ascii=False) + "\n")
 
     summary = {
-        "best_edge_f1": best_metric,
+        "best_joint_score": best_metric,
+        "best_edge_f1": max((float(x.get("edge_f1", 0.0)) for x in history), default=0.0),
         "best_threshold": best_threshold,
         "history": history,
         "train_size": len(train_set),
