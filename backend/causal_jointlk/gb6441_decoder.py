@@ -18,11 +18,19 @@ class GB6441Decoder:
     def decode(self, payload: Dict[str, Any]) -> DecodedAccidentResult:
         selected_branch = payload.get("selected_branch")
         branch_candidates = payload.get("module_candidates") or []
+        decode_hits = []
         if selected_branch is not None:
             branch_meta = getattr(selected_branch, "meta", {}) or {}
             scored = branch_meta.get("basic_type_scores") or {}
             if scored:
                 branch_candidates = [k for k, _ in sorted(scored.items(), key=lambda x: x[1], reverse=True)]
+                decode_hits.append("basic_from_branch_scores")
+            elif branch_candidates:
+                decode_hits.append("basic_from_module_candidates")
+            else:
+                decode_hits.append("basic_candidates_missing")
+        else:
+            decode_hits.append("selected_branch_missing")
         candidates = branch_candidates
         basic = self._decode_basic(candidates)
         sev = self._decode_severity(payload.get("severity_signals") or {})
@@ -50,6 +58,11 @@ class GB6441Decoder:
             industry_evidence_ids = list(industry_pred.evidence_ids)
             industry_candidates = list(industry_pred.candidates)
             industry_code = self._gen_industry_code(gbt_type_code)
+            decode_hits.append("industry_from_gbt4754_prediction")
+        elif industry_pred:
+            decode_hits.append("industry_prediction_missing_code")
+        else:
+            decode_hits.append("industry_prediction_missing")
 
         branch_first = float(getattr(selected_branch, "p_branch_first", 0.0) or 0.0) if selected_branch else 0.0
         severity_score = float(getattr(selected_branch, "severity_score", 0.0) or 0.0) if selected_branch else 0.0
@@ -71,13 +84,26 @@ class GB6441Decoder:
             industry_code,
         )
 
-        decode_hits = ["basic_lookup", "severity_lookup"]
+        decode_hits.extend(["basic_lookup", "severity_lookup"])
         if not candidates:
-            decode_hits.append("basic_fallback_from_standard")
+            decode_hits.append("basic_fallback:no_candidates")
+        if basic.get("confidence", 0.0) < 0.7:
+            decode_hits.append("basic_fallback:default_first_standard")
+        if sev.get("confidence", 0.0) < 0.7:
+            decode_hits.append("severity_fallback:unknown_or_zero_signal")
         if industry_code:
-            decode_hits.append("industry_from_gbt4754")
+            decode_hits.append("industry_code_generated")
         else:
-            decode_hits.append("industry_missing_fallback")
+            decode_hits.append("industry_fallback:code_unavailable")
+        if not full_code.get("full_code"):
+            missing_parts = []
+            if not full_code.get("basic_code"):
+                missing_parts.append("basic")
+            if not full_code.get("injury_code"):
+                missing_parts.append("injury")
+            if not full_code.get("industry_code"):
+                missing_parts.append("industry")
+            decode_hits.append(f"full_code_incomplete:{','.join(missing_parts)}")
 
         decode_hits.append(f"confidence_sources:{json.dumps(conf_sources, ensure_ascii=False)}")
 

@@ -133,9 +133,16 @@ class CausalJointLKService:
         node_prior_rows = self.node_prior_builder.build(nodes, scored_edges)
         branches = self.branch_builder.build(nodes, scored_edges, chains)
         decision = self.branch_decoder.decide(branches)
+        severity_trace: Dict[str, Any] = {"triggered": False, "reason": "not_triggered", "ranking": []}
         if decision.needs_severity_fallback:
-            branches = list(self.severity_ranker.rerank(branches))
+            branches, severity_obj = self.severity_ranker.rerank_with_trace(
+                branches,
+                triggered=True,
+                reason=f"{decision.reason}:decision_gap<{self.branch_decoder.gap_threshold}",
+            )
+            severity_trace = severity_obj.to_dict()
             decision = self.branch_decoder.decide(branches)
+            decision.trace["severity_fallback"] = severity_trace
 
         selected = next((b for b in branches if b.branch_id == decision.selected_branch_id), None)
 
@@ -185,6 +192,7 @@ class CausalJointLKService:
             trace_payload.update(self.tracer.log_edge_scores(scored_edges, top_k=trace_top_edges))
             trace_payload.update(self.tracer.log_beam_chains(chains, top_k=trace_top_chains))
             trace_payload.update(self.tracer.log_branch_decision(branches, decision, top_k=trace_top_branches))
+            trace_payload["severity_trace"] = severity_trace
             trace_payload.update(self.tracer.log_decode(decoded))
 
         result = ExtractionResult(
@@ -210,6 +218,7 @@ class CausalJointLKService:
                 "candidate_branch_table_size": len(branches),
                 "candidate_node_prior_table": node_prior_rows,
                 "industry_prediction": industry_prediction.meta,
+                "severity_trace": severity_trace,
                 "trace": trace_payload,
             },
         )
