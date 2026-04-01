@@ -130,6 +130,8 @@ def evaluate(
             relation_loss_weight=relation_loss_weight,
             sample_weights=batch.get("sample_weights"),
             pos_weight=pos_weight_tensor,
+            cf_group_ids=batch.get("twin_group_ids"),
+            cf_roles=batch.get("cf_roles"),
         )
         losses.append(float(loss_dict["loss"].detach().cpu()))
 
@@ -309,6 +311,8 @@ def main() -> None:
                 relation_loss_weight=args.relation_loss_weight,
                 sample_weights=batch.get("sample_weights"),
                 pos_weight=pos_weight_tensor,
+                cf_group_ids=batch.get("twin_group_ids"),
+                cf_roles=batch.get("cf_roles"),
             )
             loss = loss_dict["loss"]
             loss.backward()

@@ -134,7 +134,7 @@ class CausalJointLKModel(nn.Module):
         self.enable_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
         self.dir_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
         self.temporal_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
-        self.node_first_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
+        self.node_first_head = FeedForward(self.hidden_size, self.hidden_size * 2, 1, dropout=dropout)
         self.relation_head = FeedForward(self.hidden_size * 4, self.hidden_size * 2, self.num_relations,
                                          dropout=dropout)
 
@@ -238,7 +238,11 @@ class CausalJointLKModel(nn.Module):
         enable_logits = self.enable_head(support_features).squeeze(-1)
         dir_logits = self.dir_head(support_features).squeeze(-1)
         temporal_logits = self.temporal_head(support_features).squeeze(-1)
-        node_first_logits = self.node_first_head(support_features).squeeze(-1)
+        node_first_logits_all = self.node_first_head(node_states).squeeze(-1)
+        src_first_logits = node_first_logits_all[batch["source_node_index"]]
+        dst_first_logits = node_first_logits_all[batch["target_node_index"]]
+        # 兼容：保留 node_first_*（按边级输出）
+        node_first_logits = src_first_logits
         relation_logits = self.relation_head(relation_features)
 
         return {
@@ -248,8 +252,8 @@ class CausalJointLKModel(nn.Module):
             "dir_logits": dir_logits,
             "temporal_logits": temporal_logits,
             "node_first_logits": node_first_logits,
-            "src_first_logits": node_first_logits,
-            "dst_first_logits": node_first_logits,
+            "src_first_logits": src_first_logits,
+            "dst_first_logits": dst_first_logits,
             "relation_logits": relation_logits,
             "support_prob": torch.sigmoid(support_logits),
             "causal_prob": torch.sigmoid(support_logits),
@@ -257,8 +261,8 @@ class CausalJointLKModel(nn.Module):
             "dir_prob": torch.sigmoid(dir_logits),
             "temporal_prob": torch.sigmoid(temporal_logits),
             "node_first_prob": torch.sigmoid(node_first_logits),
-            "src_first_prob": torch.sigmoid(node_first_logits),
-            "dst_first_prob": torch.sigmoid(node_first_logits),
+            "src_first_prob": torch.sigmoid(src_first_logits),
+            "dst_first_prob": torch.sigmoid(dst_first_logits),
             "graph_vec": graph_vec,
             "sent_vec": sent_vec,
             "node_states": node_states,
@@ -297,6 +301,10 @@ def compute_training_loss(
     relation_loss_weight: float = 0.2,
     sample_weights: Optional[torch.Tensor] = None,
     pos_weight: Optional[torch.Tensor] = None,
+    cf_group_ids: Optional[list[str]] = None,
+    cf_roles: Optional[torch.Tensor] = None,
+    cf_margin: float = 0.2,
+    cf_loss_weight: float = 0.4,
 ) -> Dict[str, torch.Tensor]:
     labels = labels.float()
     causal_logits = outputs.get("causal_logits", outputs["support_logits"])
@@ -310,6 +318,7 @@ def compute_training_loss(
     total_loss = support_loss
     relation_loss = torch.zeros_like(support_loss)
     aux_loss = torch.zeros_like(support_loss)
+    cf_loss = torch.zeros_like(support_loss)
 
     multitask_labels = multitask_labels or {}
 
@@ -326,7 +335,7 @@ def compute_training_loss(
         + _masked_bce(outputs["dir_logits"], multitask_labels.get("dir_labels"), multitask_labels.get("dir_mask"))
         + _masked_bce(outputs["temporal_logits"], multitask_labels.get("temp_labels"), multitask_labels.get("temp_mask"))
         + _masked_bce(outputs.get("src_first_logits", outputs["node_first_logits"]), multitask_labels.get("src_first_labels"), multitask_labels.get("src_first_mask"))
-        + _masked_bce(outputs.get("src_first_logits", outputs["node_first_logits"]), multitask_labels.get("dst_first_labels"), multitask_labels.get("dst_first_mask"))
+        + _masked_bce(outputs.get("dst_first_logits", outputs["node_first_logits"]), multitask_labels.get("dst_first_labels"), multitask_labels.get("dst_first_mask"))
     ) / 5.0
 
     if relation_labels is not None:
@@ -342,13 +351,42 @@ def compute_training_loss(
                 relation_loss = (relation_losses * pos_weights).sum() / pos_weights.sum().clamp_min(1.0)
             else:
                 relation_loss = relation_losses.mean()
-                total_loss = total_loss + relation_loss_weight * relation_loss
+            total_loss = total_loss + relation_loss_weight * relation_loss
 
-        total_loss = total_loss + 0.2 * aux_loss
+    if cf_group_ids is not None and cf_roles is not None and len(cf_group_ids) == int(cf_roles.shape[0]):
+        causal_score = outputs.get("causal_prob", outputs["support_prob"])
+        dir_score = outputs.get("dir_prob", torch.sigmoid(outputs["dir_logits"]))
+        temp_score = outputs.get("temporal_prob", torch.sigmoid(outputs["temporal_logits"]))
+        cf_score = causal_score + 0.5 * dir_score + 0.5 * temp_score
 
-        return {
-            "loss": total_loss,
-            "support_loss": support_loss,
-            "relation_loss": relation_loss,
-            "aux_loss": aux_loss,
-        }
+        per_group_losses = []
+        cf_roles = cf_roles.long()
+        unique_group_ids = [gid for gid in sorted(set(cf_group_ids)) if gid]
+        for gid in unique_group_ids:
+            idx = [i for i, g in enumerate(cf_group_ids) if g == gid]
+            if not idx:
+                continue
+            idx_tensor = torch.tensor(idx, device=cf_score.device, dtype=torch.long)
+            group_roles = cf_roles[idx_tensor]
+            group_scores = cf_score[idx_tensor]
+            pos_mask = group_roles == 1
+            neg_mask = group_roles == 0
+            if pos_mask.any() and neg_mask.any():
+                score_pos = group_scores[pos_mask].mean()
+                score_neg = group_scores[neg_mask].mean()
+                per_group_losses.append(F.relu(float(cf_margin) - score_pos + score_neg))
+        if per_group_losses:
+            cf_loss = torch.stack(per_group_losses).mean()
+            total_loss = total_loss + float(cf_loss_weight) * cf_loss
+
+    total_loss = total_loss + 0.2 * aux_loss
+
+
+
+    return {
+        "loss": total_loss,
+        "support_loss": support_loss,
+        "relation_loss": relation_loss,
+        "aux_loss": aux_loss,
+        "cf_loss": cf_loss,
+    }

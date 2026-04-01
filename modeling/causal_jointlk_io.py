@@ -196,6 +196,8 @@ def batchify_examples(
     edge_dst: List[int] = []
     edge_types: List[int] = []
     sample_weights: List[float] = []
+    twin_group_ids: List[str] = []
+    cf_roles: List[int] = []
     meta_rows: List[Dict[str, Any]] = []
 
     node_offset = 0
@@ -261,6 +263,23 @@ def batchify_examples(
 
         sample_ids.append(str(ex.get("sample_id") or f"sample-{graph_idx}"))
         sample_weights.append(float(ex.get("sample_weight", 1.0)))
+        twin_group_id = str(ex.get("twin_group_id") or "")
+        cf_role_raw = ex.get("cf_role", "none")
+        if isinstance(cf_role_raw, str):
+            cf_role_norm = cf_role_raw.strip().lower()
+            if cf_role_norm == "positive":
+                cf_role = 1
+            elif cf_role_norm == "negative":
+                cf_role = 0
+            else:
+                cf_role = -1
+        else:
+            try:
+                cf_role = int(cf_role_raw)
+            except Exception:
+                cf_role = -1
+        twin_group_ids.append(twin_group_id)
+        cf_roles.append(cf_role)
 
         ex_edge_index = normalize_edge_index(ex.get("edge_index"))
         ex_edge_type = ex.get("edge_types") or ex.get("edge_type_labels") or []
@@ -290,6 +309,8 @@ def batchify_examples(
                 "gold_label": int(ex.get("label", 0)),
                 "task_masks": ex.get("task_masks"),
                 "module_id": ex.get("module_id"),
+                "twin_group_id": twin_group_id,
+                "cf_role": cf_role,
             }
         )
 
@@ -331,6 +352,8 @@ def batchify_examples(
         "src_first_mask": torch.tensor(src_first_mask, dtype=torch.float),
         "dst_first_mask": torch.tensor(dst_first_mask, dtype=torch.float),
         "sample_weights": torch.tensor(sample_weights, dtype=torch.float),
+        "cf_roles": torch.tensor(cf_roles, dtype=torch.long),
+        "twin_group_ids": twin_group_ids,
         "sample_ids": sample_ids,
         "meta_rows": meta_rows,
     }

@@ -541,6 +541,17 @@ def export_pseudo_label_package(
 
     cf_sampler = CounterfactualSampler(getattr(config, "counterfactual", None))
     cf_rows = cf_sampler.build_pairs(label_rows)
+    cf_map: Dict[str, Dict[str, Any]] = {}
+    for idx, row in enumerate(cf_rows):
+        twin_group_id = str(row.get("twin_group_id") or f"twin::{idx}")
+        row.setdefault("cf_pair_id", f"cf::{idx}")
+        row["twin_group_id"] = twin_group_id
+        pos_id = row.get("positive_pseudo_label_id")
+        neg_id = row.get("twin_pseudo_label_id") or row.get("negative_pseudo_label_id")
+        if pos_id:
+            cf_map[str(pos_id)] = {"twin_group_id": twin_group_id, "cf_role": "positive"}
+        if neg_id:
+            cf_map[str(neg_id)] = {"twin_group_id": twin_group_id, "cf_role": "negative"}
     with cf_jsonl.open("w", encoding="utf-8") as f:
         for row in cf_rows:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -548,12 +559,20 @@ def export_pseudo_label_package(
     with train_jsonl.open("w", encoding="utf-8") as f:
         for row in label_rows:
             flat = dict(row)
+            pseudo_label_id = str(row.get("pseudo_label_id") or "")
+            cf_meta = cf_map.get(pseudo_label_id, {"cf_role": "none", "twin_group_id": row.get("twin_group_id")})
             flat["causal_labels"] = row.get("silver_edge_causal", -1)
             flat["enable_labels"] = row.get("silver_edge_enable", -1)
             flat["dir_labels"] = row.get("silver_causal_dir", -1)
             flat["temp_labels"] = row.get("silver_temporal_before", -1)
             flat["src_first_labels"] = row.get("silver_node_first_src", -1)
             flat["dst_first_labels"] = row.get("silver_node_first_dst", -1)
+            flat["causal_conf"] = float(row.get("causal_conf", 0.0))
+            flat["enable_conf"] = float(row.get("enable_conf", 0.0))
+            flat["dir_conf"] = float(row.get("dir_conf", 0.0))
+            flat["temporal_conf"] = float(row.get("temporal_conf", 0.0))
+            flat["src_first_conf"] = float(row.get("src_first_conf", 0.0))
+            flat["dst_first_conf"] = float(row.get("dst_first_conf", 0.0))
             flat["causal_mask"] = 0 if int(flat["causal_labels"]) == -1 else 1
             flat["enable_mask"] = 0 if int(flat["enable_labels"]) == -1 else 1
             flat["dir_mask"] = 0 if int(flat["dir_labels"]) == -1 else 1
@@ -562,6 +581,8 @@ def export_pseudo_label_package(
             flat["dst_first_mask"] = 0 if int(flat["dst_first_labels"]) == -1 else 1
             flat["label"] = 1 if int(flat["causal_labels"]) == 1 else 0
             flat["label_confidence"] = float(row.get("causal_conf", 0.0))
+            flat["twin_group_id"] = cf_meta.get("twin_group_id")
+            flat["cf_role"] = cf_meta.get("cf_role", "none")
             f.write(json.dumps(flat, ensure_ascii=False) + "\n")
 
     review_candidates = choose_review_candidates(
