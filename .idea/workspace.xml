@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="node_first训练目标分src/dst">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="jointlk更新修正2.0">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
@@ -21,11 +21,6 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/joint_edge_scorer.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/joint_edge_scorer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/prior.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/prior.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/runtime_trace.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/runtime_trace.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/configs/causal_prior.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/configs/causal_prior.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/experiments/causal_jointlk/train_causal_jointlk.py" beforeDir="false" afterPath="$PROJECT_DIR$/experiments/causal_jointlk/train_causal_jointlk.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -634,7 +629,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775031743717</updated>
     </task>
-    <option name="localTasksCounter" value="46" />
+    <task id="LOCAL-00046" summary="jointlk更新修正2.0">
+      <option name="closed" value="true" />
+      <created>1775044641107</created>
+      <option name="number" value="00046" />
+      <option name="presentableId" value="LOCAL-00046" />
+      <option name="project" value="LOCAL" />
+      <updated>1775044641107</updated>
+    </task>
+    <option name="localTasksCounter" value="47" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -652,7 +655,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="新版知识图谱修复2.0" />
     <MESSAGE value="pseudo-label模块修正" />
     <MESSAGE value="一是把 evidence unit 做成“事故任务证据单元”，不是普通切句；&#10;二是把节点/边从通用 layer 提升成“事故专用语义层”；&#10;三是把 GB 6441 lookup/decoder 接上；&#10;四是把 node-first prior 变成独立表和独立构建器；&#10;五是把输出从 chain 升到 branch，并把命名统一、接口统一。" />
     <MESSAGE value="文件名修改" />
@@ -677,7 +679,8 @@
     <MESSAGE value="beam chain trace细化+node prior branch-aware 特征" />
     <MESSAGE value="新增branch、severity、trace分组" />
     <MESSAGE value="node_first训练目标分src/dst" />
-    <option name="LAST_COMMIT_MESSAGE" value="node_first训练目标分src/dst" />
+    <MESSAGE value="jointlk更新修正2.0" />
+    <option name="LAST_COMMIT_MESSAGE" value="jointlk更新修正2.0" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

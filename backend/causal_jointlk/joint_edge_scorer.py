@@ -28,6 +28,15 @@ class CausalJointLKEdgeScorer:
         self.checkpoint_path = checkpoint_path
         self.prior_config = load_prior_config(prior_config_path)
         self.prior = CausalPrior(self.prior_config)
+        self.beam_params = self.prior.as_beam_params()
+        self.score_weights = {
+            "w_causal": float(self.beam_params.get("w_causal", 0.45)),
+            "w_enable": float(self.beam_params.get("w_enable", 0.15)),
+            "w_dir": float(self.beam_params.get("w_dir", 0.10)),
+            "w_temp": float(self.beam_params.get("w_temp", 0.10)),
+            "w_evidence": float(self.beam_params.get("w_evidence", 0.10)),
+            "w_first": float(self.beam_params.get("w_first", 0.10)),
+        }
         self.relation_to_id = build_relation_to_id(self.prior_config)
         self.node_type_to_id = build_node_type_to_id(self.prior_config)
 
@@ -152,12 +161,14 @@ class CausalJointLKEdgeScorer:
         out: List[CausalEdge] = []
         for edge, p, pe, pd, pt, pn in zip(valid_edges, probs, enable_probs, dir_probs, temporal_probs,
                                            node_first_probs):
+            p_evidence = float(edge.p_evidence or edge.support_score or 0.0)
             fused_score = (
-                    0.45 * float(p)
-                    + 0.15 * float(pe)
-                    + 0.10 * float(pd)
-                    + 0.10 * float(pt)
-                    + 0.10 * float(pn)
+                    self.score_weights["w_causal"] * float(p)
+                    + self.score_weights["w_enable"] * float(pe)
+                    + self.score_weights["w_dir"] * float(pd)
+                    + self.score_weights["w_temp"] * float(pt)
+                    + self.score_weights["w_evidence"] * p_evidence
+                    + self.score_weights["w_first"] * float(pn)
             )
             edge.score = fused_score
             edge.support_score = float(p)
@@ -167,6 +178,7 @@ class CausalJointLKEdgeScorer:
             edge.p_dir = float(pd)
             edge.p_temporal_before = float(pt)
             edge.p_node_first = float(pn)
+            edge.p_evidence = p_evidence
             edge.meta = dict(edge.meta or {})
             edge.meta["jointlk_trace"] = {
                 "p_causal": edge.p_causal,
@@ -174,6 +186,8 @@ class CausalJointLKEdgeScorer:
                 "p_dir": edge.p_dir,
                 "p_temporal_before": edge.p_temporal_before,
                 "p_node_first": edge.p_node_first,
+                "p_evidence": edge.p_evidence,
+                "score_weights": self.score_weights,
                 "best_threshold": self.best_threshold,
             }
             source_node = node_map.get(edge.source_id)
