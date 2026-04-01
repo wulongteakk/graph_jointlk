@@ -16,7 +16,9 @@ from .industry_classifier import IndustryClassifier
 from .joint_edge_scorer import CausalJointLKEdgeScorer
 from .neo4j_accessor import Neo4jAccessor
 from .node_prior_builder import NodePriorBuilder
+from .edge_postprocessor import EdgePostProcessor
 from .prior import CausalPrior, load_prior_config
+from .runtime_trace import RuntimeTracer
 from .schemas import CausalEdge, CausalNode, ExtractionResult
 from .severity_ranker import SeverityRanker
 
@@ -42,6 +44,8 @@ class CausalJointLKService:
         self.gbt4754_lookup = GBT4754Lookup()
         self.industry_classifier = IndustryClassifier(self.gbt4754_lookup)
         self.gb6441_decoder = GB6441Decoder()
+        self.postprocessor = EdgePostProcessor(self.prior)
+        self.tracer = RuntimeTracer(enabled=True)
         self.neural_scorer = None
 
         cfg_path = os.getenv("AUTO_PSEUDO_LABEL_CANDIDATE_GENERATOR_CONFIG", "configs/causal_candidate_generator.yaml")
@@ -177,6 +181,7 @@ class CausalJointLKService:
 
         trace_payload: Dict[str, Any] = {}
         if trace:
+            self.tracer.enabled = True
             trace_payload.update(self.tracer.log_edge_scores(scored_edges, top_k=trace_top_edges))
             trace_payload.update(self.tracer.log_beam_chains(chains, top_k=trace_top_chains))
             trace_payload.update(self.tracer.log_branch_decision(branches, decision, top_k=trace_top_branches))

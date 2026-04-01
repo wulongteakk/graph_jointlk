@@ -51,6 +51,8 @@ class BeamSearchChainBuilder:
                 continue
 
             for next_edge in adjacency.get(current_node, []):
+                hop_depth = len(edge_path) + 1
+                hop_penalty = float(self.params.get("hop_penalty", 0.05)) * max(hop_depth - 1, 0)
                 if next_edge.target_id in node_path:
                     duplicate_penalty = float(self.params.get("duplicate_node_penalty", 0.40))
                 else:

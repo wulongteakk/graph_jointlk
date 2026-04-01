@@ -243,16 +243,22 @@ class CausalJointLKModel(nn.Module):
 
         return {
             "support_logits": support_logits,
+            "causal_logits": support_logits,
             "enable_logits": enable_logits,
             "dir_logits": dir_logits,
             "temporal_logits": temporal_logits,
             "node_first_logits": node_first_logits,
+            "src_first_logits": node_first_logits,
+            "dst_first_logits": node_first_logits,
             "relation_logits": relation_logits,
             "support_prob": torch.sigmoid(support_logits),
+            "causal_prob": torch.sigmoid(support_logits),
             "enable_prob": torch.sigmoid(enable_logits),
             "dir_prob": torch.sigmoid(dir_logits),
             "temporal_prob": torch.sigmoid(temporal_logits),
             "node_first_prob": torch.sigmoid(node_first_logits),
+            "src_first_prob": torch.sigmoid(node_first_logits),
+            "dst_first_prob": torch.sigmoid(node_first_logits),
             "graph_vec": graph_vec,
             "sent_vec": sent_vec,
             "node_states": node_states,
@@ -293,8 +299,9 @@ def compute_training_loss(
     pos_weight: Optional[torch.Tensor] = None,
 ) -> Dict[str, torch.Tensor]:
     labels = labels.float()
+    causal_logits = outputs.get("causal_logits", outputs["support_logits"])
     support_loss = weighted_bce_with_logits(
-        outputs["support_logits"],
+        causal_logits,
         labels,
         sample_weights=sample_weights,
         pos_weight=pos_weight,
@@ -318,8 +325,8 @@ def compute_training_loss(
         _masked_bce(outputs["enable_logits"], multitask_labels.get("enable_labels"), multitask_labels.get("enable_mask"))
         + _masked_bce(outputs["dir_logits"], multitask_labels.get("dir_labels"), multitask_labels.get("dir_mask"))
         + _masked_bce(outputs["temporal_logits"], multitask_labels.get("temp_labels"), multitask_labels.get("temp_mask"))
-        + _masked_bce(outputs["node_first_logits"], multitask_labels.get("src_first_labels"), multitask_labels.get("src_first_mask"))
-        + _masked_bce(outputs["node_first_logits"], multitask_labels.get("dst_first_labels"), multitask_labels.get("dst_first_mask"))
+        + _masked_bce(outputs.get("src_first_logits", outputs["node_first_logits"]), multitask_labels.get("src_first_labels"), multitask_labels.get("src_first_mask"))
+        + _masked_bce(outputs.get("src_first_logits", outputs["node_first_logits"]), multitask_labels.get("dst_first_labels"), multitask_labels.get("dst_first_mask"))
     ) / 5.0
 
     if relation_labels is not None:

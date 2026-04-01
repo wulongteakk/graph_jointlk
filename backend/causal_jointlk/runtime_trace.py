@@ -79,3 +79,40 @@ class ConsoleTracer:
                 "decode_rule_hits": decoded_result.decode_rule_hits,
             }
         }
+class RuntimeTracer(ConsoleTracer):
+    """Runtime tracer with switchable output and unified key aliases."""
+
+    def __init__(self, enabled: bool = True):
+        self.enabled = bool(enabled)
+
+    def log_edge_scores(self, edges: Sequence[CausalEdge], top_k: int = 10) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        payload = super().log_edge_scores(edges, top_k=top_k)
+        payload["edge-topk"] = payload.get("edge_topk", [])
+        return payload
+
+    def log_beam_chains(self, chains: Sequence[CandidateChain], top_k: int = 5) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        payload = super().log_beam_chains(chains, top_k=top_k)
+        payload["beam-topk"] = payload.get("beam_topk", [])
+        return payload
+
+    def log_branch_decision(self, branches: Sequence[CandidateBranch], decision: Any, top_k: int = 5) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        payload = super().log_branch_decision(branches, decision, top_k=top_k)
+        payload["branch-decision"] = payload.get("branch_decision", {})
+        return payload
+
+    def collect(self, **kwargs: Any) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        return {
+            "edge-topk": kwargs.get("edge_topk", []),
+            "beam-topk": kwargs.get("beam_topk", []),
+            "branch-decision": kwargs.get("branch_decision", {}),
+            "severity-fallback": kwargs.get("severity_fallback", {}),
+            "decode": kwargs.get("decode", {}),
+        }
