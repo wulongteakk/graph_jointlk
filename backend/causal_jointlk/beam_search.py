@@ -67,11 +67,27 @@ class BeamSearchChainBuilder:
                 if not next_edge.supported:
                     unsupported_penalty = float(self.params.get("unsupported_edge_penalty", 1.0))
 
-                hop_penalty = float(self.params.get("hop_penalty", 0.25))
+                direction_penalty = 0.0
+                temporal_penalty = 0.0
+                if (next_edge.p_dir or 0.0) < 0.5:
+                    direction_penalty += float(self.params.get("direction_penalty", 0.40))
+                if (next_edge.p_temporal_before or 0.0) < 0.5:
+                    temporal_penalty += float(self.params.get("temporal_penalty", 0.40))
 
-                first_bonus = float(self.params.get("first_prior_bonus", 0.15)) * float(next_edge.p_node_first or 0.0)
-                semantic_bonus = float(self.params.get("semantic_relation_bonus", 0.05)) if next_edge.relation in {"CAUSES", "ENABLES", "PRECEDES"} else 0.0
-                delta = next_edge.score - hop_penalty - transition_penalty - unsupported_penalty - duplicate_penalty + first_bonus + semantic_bonus
+                delta = (
+                    float(self.params.get("w_causal", 0.45)) * float(next_edge.p_causal or 0.0)
+                    + float(self.params.get("w_enable", 0.15)) * float(next_edge.p_enable or 0.0)
+                    + float(self.params.get("w_dir", 0.10)) * float(next_edge.p_dir or 0.0)
+                    + float(self.params.get("w_temp", 0.10)) * float(next_edge.p_temporal_before or 0.0)
+                    + float(self.params.get("w_evidence", 0.10)) * float(next_edge.p_evidence or 0.0)
+                    + float(self.params.get("w_first", 0.10)) * float(next_edge.p_node_first or 0.0)
+                    - hop_penalty
+                    - transition_penalty
+                    - unsupported_penalty
+                    - duplicate_penalty
+                    - direction_penalty
+                    - temporal_penalty
+                )
                 new_node_path = node_path + [next_edge.target_id]
                 new_edge_path = edge_path + [next_edge]
                 new_score = current_score + delta
@@ -102,7 +118,7 @@ class BeamSearchChainBuilder:
 
         unsupported_edges = [edge.edge_id for edge in edge_path if not edge.supported]
         chain_id = str(uuid.uuid4())
-        return CandidateChain(
+        chain = CandidateChain(
             chain_id=chain_id,
             nodes=node_path,
             edges=list(edge_path),
@@ -110,3 +126,12 @@ class BeamSearchChainBuilder:
             missing_layers=missing_layers,
             unsupported_edges=unsupported_edges,
         )
+        chain.meta = {
+            "beam_rank_score": score,
+            "step_scores": [float(e.score) for e in edge_path],
+            "penalties": {
+                "missing_layer_penalty": float(self.params.get("missing_layer_penalty", 0.50)) * len(missing_layers),
+                "unsupported_count": len(unsupported_edges),
+            },
+        }
+        return chain

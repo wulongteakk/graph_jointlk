@@ -160,12 +160,20 @@ first_induced:
 beam_search:
   max_hops: 6
   top_k: 8
+  w_causal: 0.45
+  w_enable: 0.15
+  w_dir: 0.10
+  w_temp: 0.10
+  w_evidence: 0.10
+  w_first: 0.10
   hop_penalty: 0.25
   skip_layer_penalty: 0.75
   distance_penalty: 0.15
   missing_layer_penalty: 0.50
   unsupported_edge_penalty: 1.00
   duplicate_node_penalty: 0.40
+  direction_penalty: 0.40
+  temporal_penalty: 0.40
 
 evidence_gate:
   min_support_score: 0.55

@@ -152,7 +152,14 @@ class CausalJointLKEdgeScorer:
         out: List[CausalEdge] = []
         for edge, p, pe, pd, pt, pn in zip(valid_edges, probs, enable_probs, dir_probs, temporal_probs,
                                            node_first_probs):
-            edge.score = float(p)
+            fused_score = (
+                    0.45 * float(p)
+                    + 0.15 * float(pe)
+                    + 0.10 * float(pd)
+                    + 0.10 * float(pt)
+                    + 0.10 * float(pn)
+            )
+            edge.score = fused_score
             edge.support_score = float(p)
             edge.supported = bool(p >= self.best_threshold)
             edge.p_causal = float(p)
@@ -160,5 +167,14 @@ class CausalJointLKEdgeScorer:
             edge.p_dir = float(pd)
             edge.p_temporal_before = float(pt)
             edge.p_node_first = float(pn)
+            edge.meta = dict(edge.meta or {})
+            edge.meta["jointlk_trace"] = {
+                "p_causal": edge.p_causal,
+                "p_enable": edge.p_enable,
+                "p_dir": edge.p_dir,
+                "p_temporal_before": edge.p_temporal_before,
+                "p_node_first": edge.p_node_first,
+                "best_threshold": self.best_threshold,
+            }
             out.append(edge)
         return out

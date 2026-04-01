@@ -71,6 +71,10 @@ class CausalJointLKService:
         k_hop: int = 2,
         top_k: int = 5,
         persist: bool = False,
+        trace: bool = True,
+        trace_top_edges: int = 10,
+        trace_top_chains: int = 5,
+        trace_top_branches: int = 5,
     ) -> ExtractionResult:
         if not target_node_id and not target_text and not query:
             raise ValueError("one of target_node_id / target_text / query must be provided")
@@ -109,7 +113,7 @@ class CausalJointLKService:
                 doc_title=doc_id,
             )
             if "+gate" in mode:
-                scored_edges = self.baseline.score_edges(scored_edges, evidence_by_edge_id)
+                scored_edges = self.postprocessor.apply(scored_edges, evidence_by_edge_id)
         else:
             scored_edges = self.baseline.score_edges(edges, evidence_by_edge_id) if mode != "baseline" else list(edges)
 
@@ -170,6 +174,13 @@ class CausalJointLKService:
             }
         )
 
+        trace_payload: Dict[str, Any] = {}
+        if trace:
+            trace_payload.update(self.tracer.log_edge_scores(scored_edges, top_k=trace_top_edges))
+            trace_payload.update(self.tracer.log_beam_chains(chains, top_k=trace_top_chains))
+            trace_payload.update(self.tracer.log_branch_decision(branches, decision, top_k=trace_top_branches))
+            trace_payload.update(self.tracer.log_decode(decoded))
+
         result = ExtractionResult(
             mode=mode,
             query=query,
@@ -193,6 +204,7 @@ class CausalJointLKService:
                 "candidate_branch_table_size": len(branches),
                 "candidate_node_prior_table": node_prior_rows,
                 "industry_prediction": industry_prediction.meta,
+                "trace": trace_payload,
             },
         )
         if persist:

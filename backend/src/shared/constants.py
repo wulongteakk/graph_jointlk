@@ -13,7 +13,7 @@ MODEL_VERSIONS = {
     "零一万物": "yi-large",
     "通义千问": "qwen-long",
     "豆包": "Doubao-pro-32k",
-    "Ollama": "qwen2:1.5b",
+    "Ollama": "qwen2.5:7b-instruct",
     "openai-gpt-4o": "gpt-4o",
 }
 OPENAI_MODELS = ["gpt-3.5", "gpt-4o", '智谱', "百川", "月之暗面", "深度求索", "零一万物", "通义千问", "豆包",
