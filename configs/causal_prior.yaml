@@ -221,6 +221,25 @@ severity_rules:
   pressure_weight: 0.5
   toxicity_weight: 0.7
 
+branch_decision:
+  gap_threshold: 0.15
+  temporal_violation_penalty: 0.8
+  cycle_penalty: 1.2
+  downstream_enable_penalty: 0.6
+
+severity:
+  death_weight: 5.0
+  serious_injury_weight: 3.0
+  light_injury_weight: 1.0
+  energy_weight: 1.0
+  toxicity_weight: 1.0
+
+trace:
+  enabled: true
+  top_edges: 10
+  top_chains: 5
+  top_branches: 5
+
 counterfactual_rules:
   same_target: true
   same_layer: true

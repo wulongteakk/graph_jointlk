@@ -37,15 +37,36 @@ class CausalJointLKService:
         self.accessor = Neo4jAccessor(graph)
         self.baseline = BaselineCausalExtractor(self.prior)
         self.chain_builder = BeamSearchChainBuilder(self.prior)
+        branch_cfg = dict((self.prior.config.get("branch_decision") or {}))
+        severity_cfg = dict((self.prior.config.get("severity") or {}))
+        trace_cfg = dict((self.prior.config.get("trace") or {}))
+
         self.branch_builder = BranchBuilder()
-        self.branch_decoder = BranchRuleDecoder()
-        self.severity_ranker = SeverityRanker()
+        self.branch_decoder = BranchRuleDecoder(
+            gap_threshold=float(branch_cfg.get("gap_threshold", 0.15)),
+            temporal_violation_penalty=float(branch_cfg.get("temporal_violation_penalty", 0.8)),
+            cycle_penalty=float(branch_cfg.get("cycle_penalty", 1.2)),
+            downstream_enable_penalty=float(branch_cfg.get("downstream_enable_penalty", 0.6)),
+        )
+        self.severity_ranker = SeverityRanker(
+            death_weight=float(severity_cfg.get("death_weight", 5.0)),
+            serious_injury_weight=float(severity_cfg.get("serious_injury_weight", 3.0)),
+            light_injury_weight=float(severity_cfg.get("light_injury_weight", 1.0)),
+            energy_weight=float(severity_cfg.get("energy_weight", 1.0)),
+            toxicity_weight=float(severity_cfg.get("toxicity_weight", 1.0)),
+        )
         self.node_prior_builder = NodePriorBuilder()
         self.gbt4754_lookup = GBT4754Lookup()
         self.industry_classifier = IndustryClassifier(self.gbt4754_lookup)
         self.gb6441_decoder = GB6441Decoder()
         self.postprocessor = EdgePostProcessor(self.prior)
-        self.tracer = RuntimeTracer(enabled=True)
+        self.trace_defaults = {
+            "enabled": bool(trace_cfg.get("enabled", True)),
+            "top_edges": int(trace_cfg.get("top_edges", 10)),
+            "top_chains": int(trace_cfg.get("top_chains", 5)),
+            "top_branches": int(trace_cfg.get("top_branches", 5)),
+        }
+        self.tracer = RuntimeTracer(enabled=self.trace_defaults["enabled"])
         self.neural_scorer = None
 
         cfg_path = os.getenv("AUTO_PSEUDO_LABEL_CANDIDATE_GENERATOR_CONFIG", "configs/causal_candidate_generator.yaml")
@@ -75,10 +96,10 @@ class CausalJointLKService:
         k_hop: int = 2,
         top_k: int = 5,
         persist: bool = False,
-        trace: bool = True,
-        trace_top_edges: int = 10,
-        trace_top_chains: int = 5,
-        trace_top_branches: int = 5,
+        trace:Optional[bool] = None,
+        trace_top_edges: Optional[int]  = None,
+        trace_top_chains: Optional[int]  = None,
+        trace_top_branches: Optional[int]  = None,
     ) -> ExtractionResult:
         if not target_node_id and not target_text and not query:
             raise ValueError("one of target_node_id / target_text / query must be provided")
@@ -186,13 +207,18 @@ class CausalJointLKService:
             }
         )
 
+        use_trace = self.trace_defaults["enabled"] if trace is None else bool(trace)
+        edge_top_k = int(trace_top_edges if trace_top_edges is not None else self.trace_defaults["top_edges"])
+        chain_top_k = int(trace_top_chains if trace_top_chains is not None else self.trace_defaults["top_chains"])
+        branch_top_k = int(trace_top_branches if trace_top_branches is not None else self.trace_defaults["top_branches"])
+
         trace_payload: Dict[str, Any] = {}
-        if trace:
+        if use_trace:
             self.tracer.enabled = True
-            trace_payload.update(self.tracer.log_edge_scores(scored_edges, top_k=trace_top_edges))
-            trace_payload.update(self.tracer.log_beam_chains(chains, top_k=trace_top_chains))
-            trace_payload.update(self.tracer.log_branch_decision(branches, decision, top_k=trace_top_branches))
-            trace_payload["severity_trace"] = severity_trace
+            trace_payload.update(self.tracer.log_edge_scores(scored_edges, top_k=edge_top_k))
+            trace_payload.update(self.tracer.log_beam_chains(chains, top_k=chain_top_k))
+            trace_payload.update(self.tracer.log_branch_decision(branches, decision, top_k=branch_top_k))
+            trace_payload.update(self.tracer.log_severity_fallback(severity_trace, top_k=branch_top_k))
             trace_payload.update(self.tracer.log_decode(decoded))
 
         result = ExtractionResult(

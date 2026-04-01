@@ -4,7 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="node prior branch-aware 特征">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="beam chain trace细化+node prior branch-aware 特征">
+      <change afterPath="$PROJECT_DIR$/experiments/causal_jointlk/eval_end2end.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
@@ -20,9 +21,9 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/data_utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/beam_search.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/beam_search.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/counterfactual_sampler.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/counterfactual_sampler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/node_prior_builder.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/node_prior_builder.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/runtime_trace.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/runtime_trace.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/configs/causal_prior.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/configs/causal_prior.yaml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -607,7 +608,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775029540297</updated>
     </task>
-    <option name="localTasksCounter" value="43" />
+    <task id="LOCAL-00043" summary="beam chain trace细化+node prior branch-aware 特征">
+      <option name="closed" value="true" />
+      <created>1775030609952</created>
+      <option name="number" value="00043" />
+      <option name="presentableId" value="LOCAL-00043" />
+      <option name="project" value="LOCAL" />
+      <updated>1775030609952</updated>
+    </task>
+    <option name="localTasksCounter" value="44" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -625,7 +634,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="加入伪标签流程2.0" />
     <MESSAGE value="通用ontology+补充大模型提取出来的知识图谱" />
     <MESSAGE value="新版知识图谱修复1.0" />
     <MESSAGE value="新版知识图谱修复2.0" />
@@ -650,7 +658,8 @@
     <MESSAGE value="分支构造升级为图聚合" />
     <MESSAGE value="先发诱导裁决增强+严重程度回退可解释输出" />
     <MESSAGE value="node prior branch-aware 特征" />
-    <option name="LAST_COMMIT_MESSAGE" value="node prior branch-aware 特征" />
+    <MESSAGE value="beam chain trace细化+node prior branch-aware 特征" />
+    <option name="LAST_COMMIT_MESSAGE" value="beam chain trace细化+node prior branch-aware 特征" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

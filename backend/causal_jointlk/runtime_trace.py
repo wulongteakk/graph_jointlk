@@ -42,7 +42,12 @@ class ConsoleTracer:
             )
         return {"beam_topk": rows}
 
-    def log_branch_decision(self, branches: Sequence[CandidateBranch], decision: Any, top_k: int = 5) -> Dict[str, Any]:
+    def log_branch_decision(
+        self,
+        branches: Sequence[CandidateBranch],
+        decision: Any,
+        top_k: int = 5,
+    ) -> Dict[str, Any]:
         ranked = sorted(branches, key=lambda b: b.score, reverse=True)[:top_k]
         return {
             "branch_ranking": [
@@ -61,7 +66,32 @@ class ConsoleTracer:
                 "decision_gap": getattr(decision, "decision_gap", 0.0),
                 "needs_severity_fallback": getattr(decision, "needs_severity_fallback", False),
                 "reason": getattr(decision, "reason", ""),
+                "ranking": getattr(decision, "ranking", []),
+                "trace": getattr(decision, "trace", {}),
             },
+        }
+
+    def log_severity_fallback(self, severity_trace: Dict[str, Any], top_k: int = 5) -> Dict[str, Any]:
+        ranking = severity_trace.get("ranking", []) if isinstance(severity_trace, dict) else []
+        rows = []
+        for row in ranking[:top_k]:
+            rows.append(
+                {
+                    "branch_id": row.get("branch_id"),
+                    "severity_score": round(float(row.get("severity_score", 0.0)), 4),
+                    "death_count": row.get("death_count", 0),
+                    "serious_injury_count": row.get("serious_injury_count", 0),
+                    "light_injury_count": row.get("light_injury_count", 0),
+                    "energy_level": row.get("energy_level", 0.0),
+                    "toxicity_level": row.get("toxicity_level", 0.0),
+                }
+            )
+        return {
+            "severity_trace": {
+                "triggered": bool(severity_trace.get("triggered", False)) if isinstance(severity_trace, dict) else False,
+                "reason": severity_trace.get("reason", "") if isinstance(severity_trace, dict) else "",
+                "ranking": rows,
+            }
         }
 
     def log_decode(self, decoded_result: DecodedAccidentResult) -> Dict[str, Any]:
@@ -79,6 +109,8 @@ class ConsoleTracer:
                 "decode_rule_hits": decoded_result.decode_rule_hits,
             }
         }
+
+
 class RuntimeTracer(ConsoleTracer):
     """Runtime tracer with switchable output and unified key aliases."""
 
@@ -104,6 +136,13 @@ class RuntimeTracer(ConsoleTracer):
             return {}
         payload = super().log_branch_decision(branches, decision, top_k=top_k)
         payload["branch-decision"] = payload.get("branch_decision", {})
+        return payload
+
+    def log_severity_fallback(self, severity_trace: Dict[str, Any], top_k: int = 5) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        payload = super().log_severity_fallback(severity_trace, top_k=top_k)
+        payload["severity-fallback"] = payload.get("severity_trace", {})
         return payload
 
     def collect(self, **kwargs: Any) -> Dict[str, Any]:
