@@ -28,13 +28,29 @@ class BeamSearchChainBuilder:
             if edge.score > -1e8:
                 adjacency[edge.source_id].append(edge)
 
-        beam: List[Tuple[float, List[str], List[CausalEdge]]] = []
+        beam: List[Tuple[float, List[str], List[CausalEdge], List[Dict[str, float]], Dict[str, float]]] = []
         for seed in seed_node_ids:
-            heapq.heappush(beam, (-0.0, [seed], []))
+            heapq.heappush(
+                beam,
+                (
+                    -0.0,
+                    [seed],
+                    [],
+                    [],
+                    {
+                        "hop_penalty": 0.0,
+                        "transition_penalty": 0.0,
+                        "unsupported_penalty": 0.0,
+                        "duplicate_penalty": 0.0,
+                        "direction_penalty": 0.0,
+                        "temporal_penalty": 0.0,
+                    },
+                ),
+            )
 
         finished: List[CandidateChain] = []
         while beam and len(finished) < max(top_k * 5, top_k):
-            neg_score, node_path, edge_path = heapq.heappop(beam)
+            neg_score, node_path, edge_path, step_trace, penalty_sums = heapq.heappop(beam)
             current_score = -neg_score
             current_node = node_path[-1]
 
@@ -45,7 +61,7 @@ class BeamSearchChainBuilder:
                     target_node_id is None and str(last_edge.target_layer).upper() == "OUTCOME"
                 )
                 if should_finish:
-                    finished.append(self._build_chain(node_path, edge_path, current_score))
+                    finished.append(self._build_chain(node_path, edge_path, current_score, step_trace, penalty_sums))
 
             if len(edge_path) >= max_hops:
                 continue
@@ -90,10 +106,36 @@ class BeamSearchChainBuilder:
                     - direction_penalty
                     - temporal_penalty
                 )
+                step_delta = {
+                    "edge_id": next_edge.edge_id,
+                    "source_id": next_edge.source_id,
+                    "target_id": next_edge.target_id,
+                    "w_causal": float(self.params.get("w_causal", 0.45)) * float(next_edge.p_causal or 0.0),
+                    "w_enable": float(self.params.get("w_enable", 0.15)) * float(next_edge.p_enable or 0.0),
+                    "w_dir": float(self.params.get("w_dir", 0.10)) * float(next_edge.p_dir or 0.0),
+                    "w_temp": float(self.params.get("w_temp", 0.10)) * float(next_edge.p_temporal_before or 0.0),
+                    "w_evidence": float(self.params.get("w_evidence", 0.10)) * float(next_edge.p_evidence or 0.0),
+                    "w_first": float(self.params.get("w_first", 0.10)) * float(next_edge.p_node_first or 0.0),
+                    "hop_penalty": hop_penalty,
+                    "transition_penalty": transition_penalty,
+                    "unsupported_penalty": unsupported_penalty,
+                    "duplicate_penalty": duplicate_penalty,
+                    "direction_penalty": direction_penalty,
+                    "temporal_penalty": temporal_penalty,
+                    "delta_total": delta,
+                }
                 new_node_path = node_path + [next_edge.target_id]
                 new_edge_path = edge_path + [next_edge]
+                new_step_trace = step_trace + [step_delta]
+                new_penalty_sums = dict(penalty_sums)
+                new_penalty_sums["hop_penalty"] += hop_penalty
+                new_penalty_sums["transition_penalty"] += transition_penalty
+                new_penalty_sums["unsupported_penalty"] += unsupported_penalty
+                new_penalty_sums["duplicate_penalty"] += duplicate_penalty
+                new_penalty_sums["direction_penalty"] += direction_penalty
+                new_penalty_sums["temporal_penalty"] += temporal_penalty
                 new_score = current_score + delta
-                heapq.heappush(beam, (-new_score, new_node_path, new_edge_path))
+                heapq.heappush(beam, (-new_score, new_node_path, new_edge_path, new_step_trace, new_penalty_sums))
 
         finished = sorted(finished, key=lambda x: x.score, reverse=True)
         dedup: List[CandidateChain] = []
@@ -113,6 +155,8 @@ class BeamSearchChainBuilder:
         node_path: List[str],
         edge_path: List[CausalEdge],
         score: float,
+        step_trace: List[Dict[str, float]],
+        penalty_sums: Dict[str, float],
     ) -> CandidateChain:
         layers = [edge.source_layer for edge in edge_path] + ([edge_path[-1].target_layer] if edge_path else [])
         missing_layers = self.prior.count_missing_layers(layers)
@@ -131,7 +175,14 @@ class BeamSearchChainBuilder:
         chain.meta = {
             "beam_rank_score": score,
             "step_scores": [float(e.score) for e in edge_path],
+            "step_trace": step_trace,
             "penalties": {
+                "hop_penalty": float(penalty_sums.get("hop_penalty", 0.0)),
+                "transition_penalty": float(penalty_sums.get("transition_penalty", 0.0)),
+                "unsupported_penalty": float(penalty_sums.get("unsupported_penalty", 0.0)),
+                "duplicate_penalty": float(penalty_sums.get("duplicate_penalty", 0.0)),
+                "direction_penalty": float(penalty_sums.get("direction_penalty", 0.0)),
+                "temporal_penalty": float(penalty_sums.get("temporal_penalty", 0.0)),
                 "missing_layer_penalty": float(self.params.get("missing_layer_penalty", 0.50)) * len(missing_layers),
                 "unsupported_count": len(unsupported_edges),
             },
