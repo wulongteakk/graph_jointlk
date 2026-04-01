@@ -175,6 +175,17 @@ beam_search:
   direction_penalty: 0.40
   temporal_penalty: 0.40
 
+
+beam:
+  w_causal: 0.45
+  w_enable: 0.15
+  w_dir: 0.10
+  w_temp: 0.10
+  w_evidence: 0.10
+  w_first: 0.10
+  direction_penalty: 0.40
+  temporal_penalty: 0.40
+
 evidence_gate:
   min_support_score: 0.55
   min_lexical_overlap: 0.18
@@ -245,4 +256,8 @@ counterfactual_rules:
   same_layer: true
   max_twin_per_positive: 2
   actor_overlap_min: 0.2
-  margin: 0.1
+  margin: 0.2
+
+
+counterfactual:
+  margin: 0.2

@@ -176,5 +176,11 @@ class CausalJointLKEdgeScorer:
                 "p_node_first": edge.p_node_first,
                 "best_threshold": self.best_threshold,
             }
+            source_node = node_map.get(edge.source_id)
+            if source_node is not None:
+                source_node.p_node_first = max(float(source_node.p_node_first or 0.0), float(edge.p_node_first or 0.0))
+            target_node = node_map.get(edge.target_id)
+            if target_node is not None:
+                target_node.p_node_first = max(float(target_node.p_node_first or 0.0), float(edge.p_node_first or 0.0))
             out.append(edge)
         return out

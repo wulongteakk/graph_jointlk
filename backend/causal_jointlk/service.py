@@ -215,11 +215,23 @@ class CausalJointLKService:
         trace_payload: Dict[str, Any] = {}
         if use_trace:
             self.tracer.enabled = True
-            trace_payload.update(self.tracer.log_edge_scores(scored_edges, top_k=edge_top_k))
-            trace_payload.update(self.tracer.log_beam_chains(chains, top_k=chain_top_k))
-            trace_payload.update(self.tracer.log_branch_decision(branches, decision, top_k=branch_top_k))
-            trace_payload.update(self.tracer.log_severity_fallback(severity_trace, top_k=branch_top_k))
-            trace_payload.update(self.tracer.log_decode(decoded))
+            edge_trace = self.tracer.log_edge_scores(scored_edges, top_k=edge_top_k)
+            beam_trace = self.tracer.log_beam_chains(chains, top_k=chain_top_k)
+            branch_trace = self.tracer.log_branch_decision(branches, decision, top_k=branch_top_k)
+            severity_trace_payload = self.tracer.log_severity_fallback(severity_trace, top_k=branch_top_k)
+            decode_trace = self.tracer.log_decode(decoded)
+            trace_payload = {
+                "edge_topk": edge_trace.get("edge_topk", []),
+                "beam_topk": beam_trace.get("beam_topk", []),
+                "branch_ranking": branch_trace.get("branch_ranking", []),
+                "severity_trace": severity_trace_payload.get("severity_trace", {}),
+                "decode_trace": decode_trace.get("decode_trace", {}),
+            }
+            self.tracer.log_edge_scores_console(scored_edges, top_k=edge_top_k)
+            self.tracer.log_beam_console(chains, top_k=chain_top_k)
+            self.tracer.log_branch_console(branches, decision, top_k=branch_top_k)
+            self.tracer.log_severity_console(severity_trace, top_k=branch_top_k)
+            self.tracer.log_decode_console(decoded)
 
         result = ExtractionResult(
             mode=mode,

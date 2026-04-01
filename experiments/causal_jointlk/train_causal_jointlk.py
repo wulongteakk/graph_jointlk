@@ -31,6 +31,7 @@ from experiments.causal_jointlk.metrics import (
 )
 from modeling.causal_jointlk_io import batchify_examples
 from modeling.modeling_causal_jointlk import CausalJointLKModel, compute_training_loss
+from backend.causal_jointlk.runtime_trace import RuntimeTracer
 
 
 def set_seed(seed: int) -> None:
@@ -346,6 +347,7 @@ def main() -> None:
     best_threshold = 0.5
     history: List[Dict[str, Any]] = []
     id_to_relation = {v: k for k, v in train_set.relation_to_id.items()}
+    tracer = RuntimeTracer(enabled=True)
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -421,6 +423,7 @@ def main() -> None:
         current_metric = float(current_metric)
         current_threshold = float(dev_metrics.get("best_threshold", 0.5))
         print("[JointLK][epoch-summary]", json.dumps(dev_metrics, ensure_ascii=False))
+        print("[JointLK][train-epoch]", json.dumps(tracer.log_train_epoch(dev_metrics, epoch=epoch), ensure_ascii=False))
 
         if current_metric > best_metric:
             best_metric = current_metric

@@ -78,6 +78,9 @@ class CausalPrior:
         return sorted(set(hits))
 
     def as_beam_params(self) -> Dict[str, Any]:
+        beam_cfg = self.config.get("beam")
+        if isinstance(beam_cfg, dict) and beam_cfg:
+            return dict(beam_cfg)
         return dict(self.config.get("beam_search") or {})
 
     def as_evidence_params(self) -> Dict[str, Any]:
@@ -88,7 +91,11 @@ class CausalPrior:
         return self.accident_layer_mapping.get(layer, layer)
 
     def as_counterfactual_params(self) -> Dict[str, Any]:
-        return dict(self.counterfactual_rules)
+        merged = {}
+        if isinstance(self.config.get("counterfactual"), dict):
+            merged.update(dict(self.config.get("counterfactual") or {}))
+        merged.update(dict(self.counterfactual_rules or {}))
+        return merged
 
     def normalize_node_type(self, canonical_type: Optional[str]) -> str:
         mapping = self.first_induced.get("canonical_map") or {}

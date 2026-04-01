@@ -6,6 +6,26 @@ from .schemas import CandidateBranch, CandidateChain, CausalEdge, DecodedAcciden
 
 
 class ConsoleTracer:
+    def log_train_epoch(self, metrics: Dict[str, Any], epoch: int | None = None) -> Dict[str, Any]:
+        payload = {
+            "epoch": epoch,
+            "loss": float(metrics.get("loss", 0.0)),
+            "causal_loss": float(metrics.get("causal_loss", 0.0)),
+            "relation_loss": float(metrics.get("relation_loss", 0.0)),
+            "aux_loss": float(metrics.get("aux_loss", 0.0)),
+            "cf_loss": float(metrics.get("cf_loss", 0.0)),
+            "edge_f1": float(metrics.get("edge_f1", 0.0)),
+            "enable_f1": float(metrics.get("enable_f1", 0.0)),
+            "dir_f1": float(metrics.get("dir_f1", 0.0)),
+            "temp_f1": float(metrics.get("temp_f1", 0.0)),
+            "src_first_f1": float(metrics.get("src_first_f1", 0.0)),
+            "dst_first_f1": float(metrics.get("dst_first_f1", 0.0)),
+            "rel_micro_f1": float(metrics.get("rel_micro_f1", 0.0)),
+            "joint_score": float(metrics.get("joint_score", 0.0)),
+            "best_threshold": float(metrics.get("best_threshold", 0.5)),
+        }
+        return {"train_epoch": payload}
+
     def log_edge_scores(self, edges: Sequence[CausalEdge], top_k: int = 10) -> Dict[str, Any]:
         ranked = sorted(edges, key=lambda e: e.score, reverse=True)[:top_k]
         rows: List[Dict[str, Any]] = []
@@ -26,6 +46,10 @@ class ConsoleTracer:
             )
         return {"edge_topk": rows}
 
+    def log_edge_scores_console(self, edges: Sequence[CausalEdge], top_k: int = 10) -> None:
+        payload = self.log_edge_scores(edges, top_k=top_k)
+        print("[JointLK][edge-topk]", payload.get("edge_topk", []))
+
     def log_beam_chains(self, chains: Sequence[CandidateChain], top_k: int = 5) -> Dict[str, Any]:
         ranked = sorted(chains, key=lambda c: c.score, reverse=True)[:top_k]
         rows = []
@@ -41,6 +65,10 @@ class ConsoleTracer:
                 }
             )
         return {"beam_topk": rows}
+
+    def log_beam_console(self, chains: Sequence[CandidateChain], top_k: int = 5) -> None:
+        payload = self.log_beam_chains(chains, top_k=top_k)
+        print("[JointLK][beam-topk]", payload.get("beam_topk", []))
 
     def log_branch_decision(
         self,
@@ -71,6 +99,11 @@ class ConsoleTracer:
             },
         }
 
+    def log_branch_console(self, branches: Sequence[CandidateBranch], decision: Any, top_k: int = 5) -> None:
+        payload = self.log_branch_decision(branches, decision, top_k=top_k)
+        print("[JointLK][branch-ranking]", payload.get("branch_ranking", []))
+        print("[JointLK][branch-decision]", payload.get("branch_decision", {}))
+
     def log_severity_fallback(self, severity_trace: Dict[str, Any], top_k: int = 5) -> Dict[str, Any]:
         ranking = severity_trace.get("ranking", []) if isinstance(severity_trace, dict) else []
         rows = []
@@ -94,6 +127,10 @@ class ConsoleTracer:
             }
         }
 
+    def log_severity_console(self, severity_trace: Dict[str, Any], top_k: int = 5) -> None:
+        payload = self.log_severity_fallback(severity_trace, top_k=top_k)
+        print("[JointLK][severity-trace]", payload.get("severity_trace", {}))
+
     def log_decode(self, decoded_result: DecodedAccidentResult) -> Dict[str, Any]:
         if decoded_result is None:
             return {"decode_trace": {}}
@@ -110,7 +147,9 @@ class ConsoleTracer:
             }
         }
 
-
+    def log_decode_console(self, decoded_result: DecodedAccidentResult) -> None:
+        payload = self.log_decode(decoded_result)
+        print("[JointLK][decode-trace]", payload.get("decode_trace", {}))
 class RuntimeTracer(ConsoleTracer):
     """Runtime tracer with switchable output and unified key aliases."""
 
@@ -120,38 +159,35 @@ class RuntimeTracer(ConsoleTracer):
     def log_edge_scores(self, edges: Sequence[CausalEdge], top_k: int = 10) -> Dict[str, Any]:
         if not self.enabled:
             return {}
-        payload = super().log_edge_scores(edges, top_k=top_k)
-        payload["edge-topk"] = payload.get("edge_topk", [])
-        return payload
+        return super().log_edge_scores(edges, top_k=top_k)
 
     def log_beam_chains(self, chains: Sequence[CandidateChain], top_k: int = 5) -> Dict[str, Any]:
         if not self.enabled:
             return {}
-        payload = super().log_beam_chains(chains, top_k=top_k)
-        payload["beam-topk"] = payload.get("beam_topk", [])
-        return payload
+        return super().log_beam_chains(chains, top_k=top_k)
 
     def log_branch_decision(self, branches: Sequence[CandidateBranch], decision: Any, top_k: int = 5) -> Dict[str, Any]:
         if not self.enabled:
             return {}
-        payload = super().log_branch_decision(branches, decision, top_k=top_k)
-        payload["branch-decision"] = payload.get("branch_decision", {})
-        return payload
+        return super().log_branch_decision(branches, decision, top_k=top_k)
 
     def log_severity_fallback(self, severity_trace: Dict[str, Any], top_k: int = 5) -> Dict[str, Any]:
         if not self.enabled:
             return {}
-        payload = super().log_severity_fallback(severity_trace, top_k=top_k)
-        payload["severity-fallback"] = payload.get("severity_trace", {})
-        return payload
+        return super().log_severity_fallback(severity_trace, top_k=top_k)
+
+    def log_train_epoch(self, metrics: Dict[str, Any], epoch: int | None = None) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        return super().log_train_epoch(metrics=metrics, epoch=epoch)
 
     def collect(self, **kwargs: Any) -> Dict[str, Any]:
         if not self.enabled:
             return {}
         return {
-            "edge-topk": kwargs.get("edge_topk", []),
-            "beam-topk": kwargs.get("beam_topk", []),
-            "branch-decision": kwargs.get("branch_decision", {}),
-            "severity-fallback": kwargs.get("severity_fallback", {}),
-            "decode": kwargs.get("decode", {}),
+            "edge_topk": kwargs.get("edge_topk", []),
+            "beam_topk": kwargs.get("beam_topk", []),
+            "branch_ranking": kwargs.get("branch_ranking", []),
+            "severity_trace": kwargs.get("severity_trace", {}),
+            "decode_trace": kwargs.get("decode_trace", {}),
         }
