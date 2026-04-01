@@ -174,6 +174,9 @@ class BranchDecision:
     decision_gap: float
     needs_severity_fallback: bool
     reason: str
+    ranking: List[Dict[str, Any]] = field(default_factory=list)
+    trace: Dict[str, Any] = field(default_factory=dict)
+
 
 
 @dataclass

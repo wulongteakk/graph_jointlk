@@ -30,6 +30,7 @@ class BranchBuilder:
 
             cluster_key = f"{harm_node}|{','.join(sorted(consequence_nodes))}|{','.join(sorted(root_nodes))}"
             if cluster_key not in grouped:
+                basic_candidates = self._infer_basic_types(path_edges)
                 grouped[cluster_key] = CandidateBranch(
                     branch_id=f"branch::{len(grouped)}",
                     chain_ids=[chain.chain_id],
@@ -41,21 +42,30 @@ class BranchBuilder:
                     harm_node=harm_node,
                     consequence_nodes=consequence_nodes,
                     evidence_unit_ids=evidence_ids,
-                    basic_type_candidates=self._infer_basic_types(path_edges),
+                    basic_type_candidates=basic_candidates,
                     rule_hits=["chain_score", "branch_cluster"],
                     industry_cue_texts=industry_cues,
                     industry_evidence_ids=evidence_ids,
                     site_or_process_terms=process_terms,
-                    meta={"module_id": self._infer_module_id(path_edges), "scenario_tags": self._infer_scenario_tags(path_edges)},
+                    meta={
+                        "module_id": self._infer_module_id(path_edges),
+                        "scenario_tags": self._infer_scenario_tags(path_edges),
+                        "basic_type_scores": self._score_basic_types(path_edges),
+                    },
                 )
             else:
                 b = grouped[cluster_key]
                 b.chain_ids.append(chain.chain_id)
                 b.score = max(b.score, chain.score)
                 b.evidence_unit_ids = list(dict.fromkeys(b.evidence_unit_ids + evidence_ids))
-                b.basic_type_candidates = list(dict.fromkeys(b.basic_type_candidates + self._infer_basic_types(path_edges)))
+                b.basic_type_candidates = list(
+                    dict.fromkeys(b.basic_type_candidates + self._infer_basic_types(path_edges)))
                 b.industry_cue_texts = list(dict.fromkeys(b.industry_cue_texts + industry_cues))
                 b.site_or_process_terms = list(dict.fromkeys(b.site_or_process_terms + process_terms))
+                merged_scores = dict(b.meta.get("basic_type_scores") or {})
+                for key, val in self._score_basic_types(path_edges).items():
+                    merged_scores[key] = max(float(merged_scores.get(key, 0.0)), float(val))
+                b.meta["basic_type_scores"] = merged_scores
 
         branches = sorted(grouped.values(), key=lambda x: x.score, reverse=True)
         return branches
@@ -83,12 +93,19 @@ class BranchBuilder:
         return roots or ([path_nodes[0]] if path_nodes else [])
 
     def _infer_basic_types(self, edges: Sequence[CausalEdge]) -> List[str]:
-        text = " ".join(filter(None, [e.source_text for e in edges] + [e.target_text for e in edges] + [e.evidence_text or "" for e in edges]))
-        hits = []
+        scores = self._score_basic_types(edges)
+        return [name for name, _ in sorted(scores.items(), key=lambda x: x[1], reverse=True)]
+
+    def _score_basic_types(self, edges: Sequence[CausalEdge]) -> Dict[str, float]:
+        text = " ".join(filter(None,
+                               [e.source_text for e in edges] + [e.target_text for e in edges] + [e.evidence_text or ""
+                                                                                                  for e in edges]))
+        scores: Dict[str, float] = {}
         for basic_type, kws in self.BASIC_TYPE_KEYWORDS.items():
-            if any(kw in text for kw in kws):
-                hits.append(basic_type)
-        return hits or ["高处坠落"]
+            hit_count = sum(1 for kw in kws if kw in text)
+            if hit_count > 0:
+                scores[basic_type] = round(hit_count / max(len(kws), 1), 4)
+        return scores
 
     def _infer_industry_cues(self, chain: CandidateChain) -> tuple[list[str], list[str]]:
         cue_texts: List[str] = []

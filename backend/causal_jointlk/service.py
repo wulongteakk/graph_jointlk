@@ -166,6 +166,7 @@ class CausalJointLKService:
         decoded = self.gb6441_decoder.decode(
             {
                 "winner_branch": selected.branch_id if selected else None,
+                "selected_branch": selected,
                 "all_branches": [b.branch_id for b in branches],
                 "doc_meta": doc_meta,
                 "module_candidates": selected.basic_type_candidates if selected else [],

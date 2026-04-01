@@ -16,7 +16,14 @@ class GB6441Decoder:
         self.codegen = json.loads((base / "gb6441_codegen_rules.json").read_text(encoding="utf-8")) if (base / "gb6441_codegen_rules.json").exists() else {}
 
     def decode(self, payload: Dict[str, Any]) -> DecodedAccidentResult:
-        candidates = payload.get("module_candidates") or ["高处坠落"]
+        selected_branch = payload.get("selected_branch")
+        branch_candidates = payload.get("module_candidates") or []
+        if selected_branch is not None:
+            branch_meta = getattr(selected_branch, "meta", {}) or {}
+            scored = branch_meta.get("basic_type_scores") or {}
+            if scored:
+                branch_candidates = [k for k, _ in sorted(scored.items(), key=lambda x: x[1], reverse=True)]
+        candidates = branch_candidates
         basic = self._decode_basic(candidates)
         sev = self._decode_severity(payload.get("severity_signals") or {})
         industry_pred: Optional[IndustryPrediction] = payload.get("industry_prediction")
@@ -43,11 +50,42 @@ class GB6441Decoder:
             industry_evidence_ids = list(industry_pred.evidence_ids)
             industry_candidates = list(industry_pred.candidates)
             industry_code = self._gen_industry_code(gbt_type_code)
+
+        branch_first = float(getattr(selected_branch, "p_branch_first", 0.0) or 0.0) if selected_branch else 0.0
+        severity_score = float(getattr(selected_branch, "severity_score", 0.0) or 0.0) if selected_branch else 0.0
+        severity_conf = min(1.0, max(0.0, severity_score / 10.0))
+        conf_sources = {
+            "branch_first_conf": round(branch_first, 4),
+            "severity_conf": round(severity_conf, 4),
+            "industry_conf": round(float(confidence or 0.0), 4),
+        }
+        decode_conf = round(
+            0.5 * conf_sources["branch_first_conf"]
+            + 0.2 * conf_sources["severity_conf"]
+            + 0.3 * conf_sources["industry_conf"],
+            4,
+        )
+        full_code = self._compose_full_code(
+            basic.get("code"),
+            sev.get("code"),
+            industry_code,
+        )
+
+        decode_hits = ["basic_lookup", "severity_lookup"]
+        if not candidates:
+            decode_hits.append("basic_fallback_from_standard")
+        if industry_code:
+            decode_hits.append("industry_from_gbt4754")
+        else:
+            decode_hits.append("industry_missing_fallback")
+
+        decode_hits.append(f"confidence_sources:{json.dumps(conf_sources, ensure_ascii=False)}")
+
         return DecodedAccidentResult(
             basic_type=basic.get("name"),
             injury_severity=sev.get("name"),
             industry_type=industry_type,
-            basic_code=basic.get("code"),
+            basic_code=full_code.get("basic_code"),
             injury_code=sev.get("code"),
             industry_code=industry_code,
             gbt4754_full_code=gbt_full_code,
@@ -58,8 +96,8 @@ class GB6441Decoder:
             industry_rule_hits=industry_rule_hits,
             industry_evidence_ids=industry_evidence_ids,
             industry_candidates=industry_candidates,
-            decode_rule_hits=["basic_lookup", "severity_lookup"] + (["industry_from_gbt4754"] if industry_code else ["industry_empty"]),
-            decode_confidence=round((basic.get("confidence", 0.7) + sev.get("confidence", 0.7) + (confidence if industry_code else 0.0)) / 3, 4),
+            decode_rule_hits=decode_hits + [f"full_code:{full_code.get('full_code') or ''}"],
+            decode_confidence=decode_conf
         )
 
     def _decode_basic(self, candidates: Any) -> Dict[str, Any]:
@@ -73,6 +111,26 @@ class GB6441Decoder:
         item = dict(self.basic_types[0])
         item["confidence"] = 0.65
         return item
+
+    @staticmethod
+    def _compose_full_code(
+            basic_code: Optional[str],
+            injury_code: Optional[str],
+            industry_code: Optional[str],
+    ) -> Dict[str, Optional[str]]:
+        basic_code = str(basic_code or "").strip() or None
+        injury_code = str(injury_code or "").strip() or None
+        industry_code = str(industry_code or "").strip() or None
+        if basic_code and injury_code and industry_code:
+            full = f"{basic_code}-{injury_code}-{industry_code}"
+        else:
+            full = None
+        return {
+            "basic_code": basic_code,
+            "injury_code": injury_code,
+            "industry_code": industry_code,
+            "full_code": full,
+        }
 
     def _decode_severity(self, severity_signals: Dict[str, Any]) -> Dict[str, Any]:
         if not self.injury:
