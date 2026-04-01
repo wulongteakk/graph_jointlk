@@ -56,6 +56,13 @@ def _truncate_console_text(text, max_len: int = 28) -> str:
         return value
     return value[: max_len - 3] + "..."
 
+def _log_jointlk_stage(stage: str, payload: dict) -> None:
+    """Unified end-to-end console logger for JointLK pipeline stages."""
+    try:
+        message = json.dumps(payload, ensure_ascii=False)
+    except Exception:
+        message = str(payload)
+    logging.info("[JointLK][%s] %s", stage, message)
 
 def _build_pseudo_console_hook(show_edge_process: bool):
     def _hook(event):
@@ -438,6 +445,18 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
 
     # KG scoping (BG-KG / Instance-KG)
     ctx = build_kg_context(kg_scope, kg_id, file_name)
+    _log_jointlk_stage(
+        "upload-document",
+        {
+            "file_name": file_name,
+            "doc_id": ctx.doc_id,
+            "kg_scope": ctx.kg_scope,
+            "kg_id": ctx.kg_id,
+            "num_pages": len(pages),
+            "model": model,
+            "domain_pack_id": domain_pack_id,
+        },
+    )
     try:
         result = graphDb_data_Access.get_current_status_document_node_scoped(ctx.doc_id)
     except Exception:
@@ -461,6 +480,14 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
         pages[i] = Document(page_content=str(text), metadata=page_metadata)
     create_chunks_obj = CreateChunksofDocument(pages, graph)
     chunks = create_chunks_obj.split_file_into_chunks()
+    _log_jointlk_stage(
+        "chunking-finished",
+        {
+            "file_name": file_name,
+            "doc_id": ctx.doc_id,
+            "num_chunks": len(chunks),
+        },
+    )
     chunkId_chunkDoc_list = create_relation_between_chunks(graph, file_name, chunks, doc_id=ctx.doc_id,
                                                            kg_scope=ctx.kg_scope, kg_id=ctx.kg_id)
     evidence_units = EvidenceUnitBuilder().build_from_chunks(chunkId_chunkDoc_list)
@@ -519,6 +546,17 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
                 node_count, rel_count ,batch_comparison_summary = processing_chunks(selected_chunks, graph, file_name, model, allowedNodes,
                                                           allowedRelationship, node_count, rel_count, ctx,evidence_units_by_chunk,
                                                           domain_pack_id=domain_pack_id,)
+                _log_jointlk_stage(
+                    "kg-batch-progress",
+                    {
+                        "file_name": file_name,
+                        "doc_id": ctx.doc_id,
+                        "processed_chunk": select_chunks_upto,
+                        "total_chunks": len(chunkId_chunkDoc_list),
+                        "node_count": node_count,
+                        "relationship_count": rel_count,
+                    },
+                )
                 comparison_summary = _merge_kg_quality_comparison(
                     comparison_summary,
                     batch_comparison_summary,
@@ -576,6 +614,15 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
                 logging.info(
                     "Successfully exported graph artifacts (concept.txt, graph.gpickle, vocab JSONs)."
                 )
+                _log_jointlk_stage(
+                    "graph-artifacts-exported",
+                    {
+                        "file_name": file_name,
+                        "doc_id": ctx.doc_id,
+                        "node_count": node_count,
+                        "relationship_count": rel_count,
+                    },
+                )
 
             except Exception as e:
                 logging.error(f"Failed to export gpickle graph: {e}")
@@ -588,6 +635,19 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
                     kg_scope=ctx.kg_scope,
                     kg_id=ctx.kg_id,
                 )
+                if pseudo_result:
+                    manifest_paths = (pseudo_result.get("paths") or {})
+                    _log_jointlk_stage(
+                        "pseudo-label-exported",
+                        {
+                            "file_name": file_name,
+                            "doc_id": ctx.doc_id,
+                            "num_pseudo_labels": pseudo_result.get("num_pseudo_labels"),
+                            "train_jsonl": manifest_paths.get("jointlk_multitask_train_jsonl"),
+                            "counterfactual_pairs": manifest_paths.get("counterfactual_pairs_jsonl"),
+                            "manual_review_csv": manifest_paths.get("manual_review_candidates_csv"),
+                        },
+                    )
             except Exception as e:
                 pseudo_result = {
                     "ok": False,

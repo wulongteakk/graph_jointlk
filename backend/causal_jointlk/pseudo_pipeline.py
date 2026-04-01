@@ -898,6 +898,19 @@ def run_pseudo_label_pipeline_for_doc(
             "cf_pairs_jsonl": (manifest.get("paths", {}) or {}).get("counterfactual_pairs_jsonl"),
         },
     )
+    train_jsonl = (manifest.get("paths", {}) or {}).get("jointlk_multitask_train_jsonl")
+    tracer.log_stage_console(
+        "jointlk-train-hint",
+        {
+            "doc_id": doc_id,
+            "hint": "使用 train_causal_jointlk.py 开始训练，并在控制台查看 [JointLK][epoch-summary]/[JointLK][epoch-dashboard] 指标。",
+            "example_command": (
+                "python experiments/causal_jointlk/train_causal_jointlk.py "
+                f"--train_jsonl {train_jsonl} --dev_jsonl {train_jsonl} "
+                "--output_dir outputs/causal_jointlk_debug --epochs 3"
+            ) if train_jsonl else None,
+        },
+    )
     if progress_hook is not None:
         progress_hook(
             {
