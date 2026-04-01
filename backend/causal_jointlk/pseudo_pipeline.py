@@ -547,7 +547,7 @@ def export_pseudo_label_package(
         row.setdefault("cf_pair_id", f"cf::{idx}")
         row["twin_group_id"] = twin_group_id
         pos_id = row.get("positive_pseudo_label_id")
-        neg_id = row.get("twin_pseudo_label_id") or row.get("negative_pseudo_label_id")
+        neg_id = row.get("negative_pseudo_label_id") or row.get("twin_pseudo_label_id")
         if pos_id:
             cf_map[str(pos_id)] = {"twin_group_id": twin_group_id, "cf_role": "positive"}
         if neg_id:
@@ -560,7 +560,13 @@ def export_pseudo_label_package(
         for row in label_rows:
             flat = dict(row)
             pseudo_label_id = str(row.get("pseudo_label_id") or "")
-            cf_meta = cf_map.get(pseudo_label_id, {"cf_role": "none", "twin_group_id": row.get("twin_group_id")})
+            cf_meta = cf_map.get(
+                pseudo_label_id,
+                {
+                    "cf_role": "none",
+                    "twin_group_id": row.get("twin_group_id") or f"singleton::{pseudo_label_id or row.get('doc_id')}",
+                },
+            )
             flat["causal_labels"] = row.get("silver_edge_causal", -1)
             flat["enable_labels"] = row.get("silver_edge_enable", -1)
             flat["dir_labels"] = row.get("silver_causal_dir", -1)

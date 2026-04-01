@@ -192,6 +192,7 @@ def batchify_examples(
     src_first_mask: List[float] = []
     dst_first_mask: List[float] = []
     sample_ids: List[str] = []
+    pseudo_label_ids: List[str] = []
     edge_src: List[int] = []
     edge_dst: List[int] = []
     edge_types: List[int] = []
@@ -262,6 +263,7 @@ def batchify_examples(
         dst_first_mask.append(float(ex.get("dst_first_mask", 0 if d2_label < 0 else 1)))
 
         sample_ids.append(str(ex.get("sample_id") or f"sample-{graph_idx}"))
+        pseudo_label_ids.append(str(ex.get("pseudo_label_id") or ""))
         sample_weights.append(float(ex.get("sample_weight", 1.0)))
         twin_group_id = str(ex.get("twin_group_id") or "")
         cf_role_raw = ex.get("cf_role", "none")
@@ -293,6 +295,7 @@ def batchify_examples(
         meta_rows.append(
             {
                 "sample_id": sample_ids[-1],
+                "pseudo_label_id": pseudo_label_ids[-1],
                 "doc_id": ex.get("doc_id"),
                 "file_name": ex.get("file_name") or ex.get("doc_title"),
                 "doc_title": ex.get("doc_title") or ex.get("file_name"),
@@ -306,6 +309,12 @@ def batchify_examples(
                 "target_text": ex.get("target_text"),
                 "pseudo_label_id": ex.get("pseudo_label_id"),
                 "label_confidence": ex.get("label_confidence"),
+                "causal_conf": ex.get("causal_conf"),
+                "enable_conf": ex.get("enable_conf"),
+                "dir_conf": ex.get("dir_conf"),
+                "temporal_conf": ex.get("temporal_conf"),
+                "src_first_conf": ex.get("src_first_conf"),
+                "dst_first_conf": ex.get("dst_first_conf"),
                 "gold_label": int(ex.get("label", 0)),
                 "task_masks": ex.get("task_masks"),
                 "module_id": ex.get("module_id"),
@@ -354,6 +363,7 @@ def batchify_examples(
         "sample_weights": torch.tensor(sample_weights, dtype=torch.float),
         "cf_roles": torch.tensor(cf_roles, dtype=torch.long),
         "twin_group_ids": twin_group_ids,
+        "pseudo_label_ids": pseudo_label_ids,
         "sample_ids": sample_ids,
         "meta_rows": meta_rows,
     }

@@ -77,6 +77,7 @@ class CausalEdgeDataset(Dataset):
         self.include_label_sources = set(include_label_sources or [])
         self.exclude_label_sources = set(exclude_label_sources or [])
         self.records = self._load_records()
+        self.twin_index = self.build_twin_index()
 
     def _load_records(self) -> List[Dict[str, Any]]:
         if not self.jsonl_path.exists():
@@ -122,6 +123,7 @@ class CausalEdgeDataset(Dataset):
                 if "sample_weight" not in obj:
                     obj["sample_weight"] = self._derive_sample_weight(obj)
                 obj.setdefault("twin_group_id", obj.get("twin_group_id"))
+                obj["cf_role"] = _normalize_cf_role(obj.get("cf_role", "none"))
                 obj.setdefault("causal_labels", obj.get("silver_edge_causal", obj.get("label", -1)))
                 obj.setdefault("enable_labels", obj.get("silver_edge_enable", -1))
                 obj.setdefault("dir_labels", obj.get("silver_causal_dir", -1))
@@ -170,10 +172,37 @@ class CausalEdgeDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         return self.records[idx]
 
-
+    def build_twin_index(self) -> Dict[str, Dict[str, List[int]]]:
+        twin_index: Dict[str, Dict[str, List[int]]] = {}
+        for idx, row in enumerate(self.records):
+            twin_group_id = str(row.get("twin_group_id") or "").strip()
+            if not twin_group_id:
+                continue
+            role = _normalize_cf_role(row.get("cf_role", "none"))
+            if role == "none":
+                continue
+            slot = twin_index.setdefault(twin_group_id, {"positive": [], "negative": []})
+            slot[role].append(idx)
+        return twin_index
 
 def _safe_pick_text(record: Dict[str, Any], idx: int, default_value: str) -> str:
     node_texts: Sequence[str] = record.get("node_texts") or []
     if node_texts and 0 <= int(idx) < len(node_texts):
         return str(node_texts[int(idx)])
     return default_value
+
+def _normalize_cf_role(value: Any) -> str:
+    if isinstance(value, str):
+        role = value.strip().lower()
+        if role in {"positive", "negative"}:
+            return role
+        return "none"
+    try:
+        role_int = int(value)
+    except Exception:
+        return "none"
+    if role_int == 1:
+        return "positive"
+    if role_int == 0:
+        return "negative"
+    return "none"
