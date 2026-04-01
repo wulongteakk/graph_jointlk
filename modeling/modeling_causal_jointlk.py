@@ -134,7 +134,8 @@ class CausalJointLKModel(nn.Module):
         self.enable_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
         self.dir_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
         self.temporal_head = FeedForward(self.hidden_size * 7, self.hidden_size * 2, 1, dropout=dropout)
-        self.node_first_head = FeedForward(self.hidden_size, self.hidden_size * 2, 1, dropout=dropout)
+        self.src_first_head = FeedForward(self.hidden_size, self.hidden_size * 2, 1, dropout=dropout)
+        self.dst_first_head = FeedForward(self.hidden_size, self.hidden_size * 2, 1, dropout=dropout)
         self.relation_head = FeedForward(self.hidden_size * 4, self.hidden_size * 2, self.num_relations,
                                          dropout=dropout)
 
@@ -238,10 +239,11 @@ class CausalJointLKModel(nn.Module):
         enable_logits = self.enable_head(support_features).squeeze(-1)
         dir_logits = self.dir_head(support_features).squeeze(-1)
         temporal_logits = self.temporal_head(support_features).squeeze(-1)
-        node_first_logits_all = self.node_first_head(node_states).squeeze(-1)
-        src_first_logits = node_first_logits_all[batch["source_node_index"]]
-        dst_first_logits = node_first_logits_all[batch["target_node_index"]]
-        # 兼容：保留 node_first_*（按边级输出）
+        src_first_logits_all = self.src_first_head(node_states).squeeze(-1)
+        dst_first_logits_all = self.dst_first_head(node_states).squeeze(-1)
+        src_first_logits = src_first_logits_all[batch["source_node_index"]]
+        dst_first_logits = dst_first_logits_all[batch["target_node_index"]]
+        # 兼容：保留 node_first_*（按边级输出，默认使用 src_first）
         node_first_logits = src_first_logits
         relation_logits = self.relation_head(relation_features)
 

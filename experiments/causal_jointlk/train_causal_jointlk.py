@@ -414,7 +414,11 @@ def main() -> None:
         dev_metrics["pos_weight"] = pos_weight_value
         history.append(dev_metrics)
 
-        current_metric = float(dev_metrics.get("joint_score", 0.0))
+        current_metric = dev_metrics.get("joint_score")
+        if current_metric is None:
+            current_metric = compute_joint_score(dev_metrics)
+            dev_metrics["joint_score"] = float(current_metric)
+        current_metric = float(current_metric)
         current_threshold = float(dev_metrics.get("best_threshold", 0.5))
         print("[JointLK][epoch-summary]", json.dumps(dev_metrics, ensure_ascii=False))
 
