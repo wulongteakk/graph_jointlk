@@ -348,6 +348,19 @@ def main() -> None:
     history: List[Dict[str, Any]] = []
     id_to_relation = {v: k for k, v in train_set.relation_to_id.items()}
     tracer = RuntimeTracer(enabled=True)
+    tracer.log_stage_console(
+        "train-setup",
+        {
+            "train_size": len(train_set),
+            "dev_size": len(dev_set),
+            "batch_size": args.batch_size,
+            "epochs": args.epochs,
+            "model_name": args.model_name,
+            "relation_loss_weight": args.relation_loss_weight,
+            "pos_weight": pos_weight_value,
+        },
+    )
+    tracer.log_jointlk_input_preview_console(train_set.records, top_k=3)
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -424,6 +437,7 @@ def main() -> None:
         current_threshold = float(dev_metrics.get("best_threshold", 0.5))
         print("[JointLK][epoch-summary]", json.dumps(dev_metrics, ensure_ascii=False))
         print("[JointLK][train-epoch]", json.dumps(tracer.log_train_epoch(dev_metrics, epoch=epoch), ensure_ascii=False))
+        tracer.log_train_epoch_console(dev_metrics, epoch=epoch)
 
         if current_metric > best_metric:
             best_metric = current_metric

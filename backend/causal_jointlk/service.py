@@ -103,6 +103,18 @@ class CausalJointLKService:
     ) -> ExtractionResult:
         if not target_node_id and not target_text and not query:
             raise ValueError("one of target_node_id / target_text / query must be provided")
+        self.tracer.log_stage_console(
+            "service-request",
+            {
+                "mode": mode,
+                "doc_id": doc_id,
+                "query": query,
+                "target_text": target_text,
+                "target_node_id": target_node_id,
+                "k_hop": k_hop,
+                "top_k": top_k,
+            },
+        )
 
         if target_node_id:
             seed_nodes = [CausalNode(node_id=target_node_id, text=target_text or target_node_id)]
@@ -232,6 +244,24 @@ class CausalJointLKService:
             self.tracer.log_branch_console(branches, decision, top_k=branch_top_k)
             self.tracer.log_severity_console(severity_trace, top_k=branch_top_k)
             self.tracer.log_decode_console(decoded)
+            self.tracer.log_stage_console(
+                "service-summary",
+                {
+                    "num_nodes": len(nodes),
+                    "num_edges": len(edges),
+                    "num_scored_edges": len(scored_edges),
+                    "num_chains": len(chains),
+                    "num_branches": len(branches),
+                    "selected_branch_id": decision.selected_branch_id if decision else None,
+                    "needs_severity_fallback": bool(decision.needs_severity_fallback) if decision else False,
+                    "decoded_full": {
+                        "basic_type": decoded.basic_type if decoded else None,
+                        "injury_code": decoded.injury_code if decoded else None,
+                        "industry_code": decoded.industry_code if decoded else None,
+                        "decode_confidence": decoded.decode_confidence if decoded else None,
+                    },
+                },
+            )
 
         result = ExtractionResult(
             mode=mode,

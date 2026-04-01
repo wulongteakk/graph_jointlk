@@ -19,6 +19,7 @@ from .pseudo_labeler import (
     merge_prior_and_pseudo_config,
     relation_confidence_from_props,
 )
+from .runtime_trace import RuntimeTracer
 from src.evidence_store.sqlite_store import EvidenceStore  # type: ignore
 
 
@@ -706,6 +707,17 @@ def run_pseudo_label_pipeline_for_doc(
     cfg = config or AutoPseudoPipelineConfig.from_env()
     if not cfg.enabled:
         return {"ok": False, "skipped": True, "reason": "disabled"}
+    tracer = RuntimeTracer(enabled=True)
+    tracer.log_stage_console(
+        "pseudo-pipeline-start",
+        {
+            "doc_id": doc_id,
+            "file_name": file_name,
+            "kg_scope": kg_scope,
+            "kg_id": kg_id,
+            "export_root": cfg.export_root,
+        },
+    )
 
     prior_cfg_path = _resolve_legacy_config_path(cfg.prior_config_path)
     pseudo_cfg_path = _resolve_legacy_config_path(cfg.pseudo_rule_config_path)
@@ -726,6 +738,15 @@ def run_pseudo_label_pipeline_for_doc(
         file_name=file_name,
         max_units=cfg.max_units_per_doc_scan,
     )
+    tracer.log_stage_console(
+        "evidence-loaded",
+        {
+            "doc_id": doc_id,
+            "file_name": file_name,
+            "num_units_scanned": len(unit_rows),
+            "max_units": cfg.max_units_per_doc_scan,
+        },
+    )
 
     candidate_gen_cfg_raw = load_yaml_file(candidate_cfg_path) if candidate_cfg_path and os.path.exists(candidate_cfg_path) else {}
     candidate_generator = CandidateGenerator(accessor, CandidateGeneratorConfig(**(candidate_gen_cfg_raw or {})))
@@ -740,6 +761,16 @@ def run_pseudo_label_pipeline_for_doc(
     )
     raw_candidate_edges = len(doc_edges)
     doc_edges, dedup_dropped_edges = deduplicate_candidate_edges(doc_edges)
+    tracer.log_stage_console(
+        "kg-candidates",
+        {
+            "doc_id": doc_id,
+            "num_candidate_edges_before_dedup": raw_candidate_edges,
+            "num_candidate_edges_after_dedup": len(doc_edges),
+            "dedup_dropped_edges": dedup_dropped_edges,
+            "candidate_stats": candidate_stats,
+        },
+    )
 
     label_rows: List[Dict[str, Any]] = []
     task_abstain_counts = defaultdict(int)
@@ -855,6 +886,18 @@ def run_pseudo_label_pipeline_for_doc(
     preview = label_rows[:preview_limit]
     if preview_limit > 0:
         print_pseudo_label_rows_console(label_rows, limit=preview_limit)
+    tracer.log_jointlk_input_preview_console(label_rows, top_k=min(5, len(label_rows)))
+    tracer.log_stage_console(
+        "pseudo-pipeline-summary",
+        {
+            "doc_id": doc_id,
+            "num_pseudo_labels": len(label_rows),
+            "abstain_counts": dict(task_abstain_counts),
+            "task_coverage": manifest.get("task_coverage", {}),
+            "train_jsonl": (manifest.get("paths", {}) or {}).get("jointlk_multitask_train_jsonl"),
+            "cf_pairs_jsonl": (manifest.get("paths", {}) or {}).get("counterfactual_pairs_jsonl"),
+        },
+    )
     if progress_hook is not None:
         progress_hook(
             {

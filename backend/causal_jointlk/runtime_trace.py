@@ -6,7 +6,14 @@ from .schemas import CandidateBranch, CandidateChain, CausalEdge, DecodedAcciden
 
 
 class ConsoleTracer:
+    def log_stage(self, stage: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return {"stage": stage, "payload": payload}
+
+    def log_stage_console(self, stage: str, payload: Dict[str, Any]) -> None:
+        print(f"[JointLK][{stage}]", payload)
+
     def log_train_epoch(self, metrics: Dict[str, Any], epoch: int | None = None) -> Dict[str, Any]:
+        ranking_by_doc = metrics.get("ranking_by_doc", {}) or {}
         payload = {
             "epoch": epoch,
             "loss": float(metrics.get("loss", 0.0)),
@@ -21,10 +28,46 @@ class ConsoleTracer:
             "src_first_f1": float(metrics.get("src_first_f1", 0.0)),
             "dst_first_f1": float(metrics.get("dst_first_f1", 0.0)),
             "rel_micro_f1": float(metrics.get("rel_micro_f1", 0.0)),
+            "rel_macro_f1": float(metrics.get("rel_macro_f1", 0.0)),
+            "mrr": float(ranking_by_doc.get("mrr", metrics.get("mrr", 0.0))),
+            "hits@1": float(ranking_by_doc.get("hits@1", metrics.get("hits@1", 0.0))),
+            "hits@3": float(ranking_by_doc.get("hits@3", metrics.get("hits@3", 0.0))),
+            "hits@5": float(ranking_by_doc.get("hits@5", metrics.get("hits@5", 0.0))),
+            "ndcg@5": float(ranking_by_doc.get("ndcg@5", metrics.get("ndcg@5", 0.0))),
             "joint_score": float(metrics.get("joint_score", 0.0)),
             "best_threshold": float(metrics.get("best_threshold", 0.5)),
         }
         return {"train_epoch": payload}
+
+    def log_train_epoch_console(self, metrics: Dict[str, Any], epoch: int | None = None) -> None:
+        payload = self.log_train_epoch(metrics=metrics, epoch=epoch).get("train_epoch", {})
+        print("[JointLK][epoch-dashboard]", payload)
+
+    def log_jointlk_input_preview(self, rows: Sequence[Dict[str, Any]], top_k: int = 3) -> Dict[str, Any]:
+        preview: List[Dict[str, Any]] = []
+        for row in list(rows)[:max(int(top_k), 0)]:
+            preview.append(
+                {
+                    "sample_id": row.get("sample_id"),
+                    "doc_id": row.get("doc_id"),
+                    "source_text": row.get("source_text"),
+                    "candidate_relation": row.get("candidate_relation") or row.get("relation_type"),
+                    "target_text": row.get("target_text"),
+                    "causal_labels": row.get("causal_labels", row.get("label")),
+                    "enable_labels": row.get("enable_labels"),
+                    "dir_labels": row.get("dir_labels"),
+                    "temp_labels": row.get("temp_labels"),
+                    "src_first_labels": row.get("src_first_labels"),
+                    "dst_first_labels": row.get("dst_first_labels"),
+                    "twin_group_id": row.get("twin_group_id"),
+                    "cf_role": row.get("cf_role"),
+                }
+            )
+        return {"jointlk_input_preview": preview}
+
+    def log_jointlk_input_preview_console(self, rows: Sequence[Dict[str, Any]], top_k: int = 3) -> None:
+        payload = self.log_jointlk_input_preview(rows, top_k=top_k)
+        print("[JointLK][input-preview]", payload.get("jointlk_input_preview", []))
 
     def log_edge_scores(self, edges: Sequence[CausalEdge], top_k: int = 10) -> Dict[str, Any]:
         ranked = sorted(edges, key=lambda e: e.score, reverse=True)[:top_k]
