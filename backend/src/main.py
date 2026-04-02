@@ -29,6 +29,9 @@ import sys
 import shutil
 import urllib.parse
 import json
+import subprocess
+import threading
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
 load_dotenv()
@@ -183,6 +186,121 @@ def maybe_run_auto_pseudo_label_pipeline(graph, *, file_name: str, doc_id: str, 
         logging.info("[pseudo-label][preview] no pseudo-label generated for file=%s", file_name)
 
     return result
+
+def _auto_jointlk_train_enabled() -> bool:
+    return _get_bool_env("AUTO_JOINTLK_TRAIN_AFTER_UPLOAD", True)
+
+
+def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, doc_id: str):
+    """
+    Trigger causal JointLK training automatically after pseudo labels are generated.
+    The training process runs asynchronously in a background thread.
+    """
+    if not _auto_jointlk_train_enabled():
+        logging.info("[jointlk-train] skipped because AUTO_JOINTLK_TRAIN_AFTER_UPLOAD is disabled")
+        return {"enabled": False, "started": False, "reason": "disabled"}
+
+    if not pseudo_result or not pseudo_result.get("ok"):
+        logging.info("[jointlk-train] skipped because pseudo pipeline result is not ok")
+        return {"enabled": True, "started": False, "reason": "pseudo_not_ok"}
+
+    num_pseudo_labels = int(pseudo_result.get("num_pseudo_labels") or 0)
+    if num_pseudo_labels <= 0:
+        logging.info("[jointlk-train] skipped because no pseudo labels were generated")
+        return {"enabled": True, "started": False, "reason": "no_pseudo_labels"}
+
+    manifest_paths = pseudo_result.get("paths") or {}
+    train_jsonl = manifest_paths.get("jointlk_multitask_train_jsonl")
+    if not train_jsonl:
+        logging.info("[jointlk-train] skipped because train_jsonl is missing")
+        return {"enabled": True, "started": False, "reason": "missing_train_jsonl"}
+
+    repo_root = Path(__file__).resolve().parents[2]
+    train_script = repo_root / "experiments" / "causal_jointlk" / "train_causal_jointlk.py"
+    if not train_script.exists():
+        logging.warning("[jointlk-train] script not found: %s", train_script)
+        return {"enabled": True, "started": False, "reason": "missing_train_script"}
+
+    output_root = os.getenv("AUTO_JOINTLK_TRAIN_OUTPUT_ROOT", "./outputs/auto_jointlk_training")
+    output_dir = Path(output_root) / sanitize_fs_part(doc_id or file_name)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_file = output_dir / "train.log"
+
+    dev_jsonl = os.getenv("AUTO_JOINTLK_TRAIN_DEV_JSONL", train_jsonl)
+    model_name = os.getenv("AUTO_JOINTLK_TRAIN_MODEL_NAME", "roberta-large")
+    prior_config = os.getenv("AUTO_JOINTLK_TRAIN_PRIOR_CONFIG", "configs/causal_prior.yaml")
+    epochs = str(_get_int_env("AUTO_JOINTLK_TRAIN_EPOCHS", 3))
+    batch_size = str(_get_int_env("AUTO_JOINTLK_TRAIN_BATCH_SIZE", 4))
+    lr = os.getenv("AUTO_JOINTLK_TRAIN_LR", "2e-5")
+
+    command = [
+        sys.executable,
+        str(train_script),
+        "--train_jsonl",
+        str(train_jsonl),
+        "--dev_jsonl",
+        str(dev_jsonl),
+        "--prior_config",
+        str(prior_config),
+        "--model_name",
+        str(model_name),
+        "--output_dir",
+        str(output_dir),
+        "--epochs",
+        epochs,
+        "--batch_size",
+        batch_size,
+        "--lr",
+        lr,
+    ]
+
+    def _run():
+        with log_file.open("a", encoding="utf-8") as fout:
+            fout.write(
+                f"\n\n=== auto jointlk training started at {datetime.now().isoformat()} "
+                f"for doc_id={doc_id} file_name={file_name} ===\n"
+            )
+            fout.write("CMD: " + " ".join(command) + "\n")
+            fout.flush()
+            proc = subprocess.Popen(
+                command,
+                cwd=str(repo_root),
+                stdout=fout,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            code = proc.wait()
+            fout.write(f"\n=== auto jointlk training finished with exit_code={code} ===\n")
+            fout.flush()
+            logging.info(
+                "[jointlk-train] finished for doc_id=%s file_name=%s exit_code=%s log=%s",
+                doc_id,
+                file_name,
+                code,
+                str(log_file),
+            )
+
+    thread = threading.Thread(target=_run, daemon=True, name=f"jointlk-train-{sanitize_fs_part(doc_id or file_name)}")
+    thread.start()
+
+    logging.info(
+        "[jointlk-train] started in background for doc_id=%s file_name=%s output_dir=%s log=%s",
+        doc_id,
+        file_name,
+        str(output_dir),
+        str(log_file),
+    )
+    return {
+        "enabled": True,
+        "started": True,
+        "train_jsonl": str(train_jsonl),
+        "dev_jsonl": str(dev_jsonl),
+        "output_dir": str(output_dir),
+        "log_file": str(log_file),
+        "epochs": int(epochs),
+        "batch_size": int(batch_size),
+        "model_name": model_name,
+    }
 
 def create_source_node_graph_url_s3(graph, model, source_url, aws_access_key_id, aws_secret_access_key, source_type):
     lst_file_name = []
@@ -594,6 +712,7 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
         end_time = datetime.now()
         processed_time = end_time - start_time
         pseudo_result = None
+        auto_train_result = None
         obj_source_node = sourceNode()
         obj_source_node.file_name = file_name
         obj_source_node.doc_id = ctx.doc_id
@@ -659,6 +778,33 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
                 logging.exception(f"[pseudo-label] failed for file={file_name}: {e}")
 
                 # merged_file_path have value only when file uploaded from local
+            try:
+                auto_train_result = maybe_trigger_auto_jointlk_training(
+                    pseudo_result=pseudo_result or {},
+                    file_name=file_name,
+                    doc_id=ctx.doc_id,
+                )
+                if auto_train_result and auto_train_result.get("started"):
+                    _log_jointlk_stage(
+                        "jointlk-training-started",
+                        {
+                            "file_name": file_name,
+                            "doc_id": ctx.doc_id,
+                            "train_jsonl": auto_train_result.get("train_jsonl"),
+                            "output_dir": auto_train_result.get("output_dir"),
+                            "log_file": auto_train_result.get("log_file"),
+                            "epochs": auto_train_result.get("epochs"),
+                            "batch_size": auto_train_result.get("batch_size"),
+                            "model_name": auto_train_result.get("model_name"),
+                        },
+                    )
+            except Exception as e:
+                auto_train_result = {
+                    "enabled": True,
+                    "started": False,
+                    "error": str(e),
+                }
+                logging.exception(f"[jointlk-train] failed to start for file={file_name}: {e}")
 
 
         # merged_file_path have value only when file uploaded from local
@@ -680,6 +826,7 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
             "model": model,
             "success_count": 1,
             "pseudo_label_summary": pseudo_result if job_status == "Completed" else None,
+            "jointlk_training_summary": auto_train_result if job_status == "Completed" else None,
             "kg_quality_comparison": comparison_summary if job_status == "Completed" else None,
         }
     else:
