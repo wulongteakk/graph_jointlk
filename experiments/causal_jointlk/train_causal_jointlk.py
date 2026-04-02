@@ -438,6 +438,20 @@ def main() -> None:
         print("[JointLK][epoch-summary]", json.dumps(dev_metrics, ensure_ascii=False))
         print("[JointLK][train-epoch]", json.dumps(tracer.log_train_epoch(dev_metrics, epoch=epoch), ensure_ascii=False))
         tracer.log_train_epoch_console(dev_metrics, epoch=epoch)
+        tracer.log_stage_console(
+            "training-metrics",
+            {
+                "epoch": epoch,
+                "joint_score": float(dev_metrics.get("joint_score", 0.0)),
+                "edge_f1": float(dev_metrics.get("edge_f1", 0.0)),
+                "rel_micro_f1": float(dev_metrics.get("rel_micro_f1", 0.0)),
+
+
+                "rel_macro_f1": float(dev_metrics.get("rel_macro_f1", 0.0)),
+                "mrr": float((dev_metrics.get("ranking_by_doc", {}) or {}).get("mrr", dev_metrics.get("mrr", 0.0))),
+                "best_threshold": float(dev_metrics.get("best_threshold", 0.5)),
+            },
+        )
 
         if current_metric > best_metric:
             best_metric = current_metric

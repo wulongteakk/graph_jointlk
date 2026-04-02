@@ -162,7 +162,13 @@ class CausalJointLKService:
             top_k=top_k,
             max_hops=k_hop + 2,
         )
-
+        self.tracer.log_stage_console(
+            "causal-chain-summary",
+            {
+                "num_chains": len(chains),
+                "top_chain_ids": [c.chain_id for c in sorted(chains, key=lambda x: x.score, reverse=True)[:min(3, len(chains))]],
+            },
+        )
         node_prior_rows = self.node_prior_builder.build(nodes, scored_edges)
         branches = self.branch_builder.build(nodes, scored_edges, chains)
         decision = self.branch_decoder.decide(branches)
@@ -178,6 +184,15 @@ class CausalJointLKService:
             decision.trace["severity_fallback"] = severity_trace
 
         selected = next((b for b in branches if b.branch_id == decision.selected_branch_id), None)
+        self.tracer.log_stage_console(
+            "induced-branch-decision",
+            {
+                "selected_branch_id": decision.selected_branch_id,
+                "decision_gap": decision.decision_gap,
+                "needs_severity_fallback": decision.needs_severity_fallback,
+                "reason": decision.reason,
+            },
+        )
 
         evidence_units = []
         for branch in branches:
@@ -217,6 +232,18 @@ class CausalJointLKService:
                 "severity_signals": severity_signals,
                 "industry_prediction": industry_prediction,
             }
+        )
+        self.tracer.log_stage_console(
+            "final-code-classification",
+            {
+                "basic_type": decoded.basic_type if decoded else None,
+                "basic_code": decoded.basic_code if decoded else None,
+                "injury_severity": decoded.injury_severity if decoded else None,
+                "injury_code": decoded.injury_code if decoded else None,
+                "industry_type": decoded.industry_type if decoded else None,
+                "industry_code": decoded.industry_code if decoded else None,
+                "decode_confidence": decoded.decode_confidence if decoded else None,
+            },
         )
 
         use_trace = self.trace_defaults["enabled"] if trace is None else bool(trace)

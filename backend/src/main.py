@@ -68,33 +68,36 @@ def _build_pseudo_console_hook(show_edge_process: bool):
     def _hook(event):
         stage = event.get("stage")
         if stage == "edge_decision" and show_edge_process:
-            """logging.info(
-                "[pseudo-label][edge %s/%s] %s --%s--> %s | label=%s | conf=%.3f | rule=%s",
-                event.get("edge_index"),
-                event.get("num_candidate_edges"),
-                _truncate_console_text(event.get("source_text")),
-                event.get("relation_type") or "?",
-                _truncate_console_text(event.get("target_text")),
-                event.get("label"),
-                float(event.get("confidence") or 0.0),
-                event.get("primary_rule") or "-",
-            )"""
+            _log_jointlk_stage(
+                "pseudo-edge-decision",
+                {
+                    "edge_index": event.get("edge_index"),
+                    "num_candidate_edges": event.get("num_candidate_edges"),
+                    "source_text": _truncate_console_text(event.get("source_text")),
+                    "relation_type": event.get("relation_type") or "?",
+                    "target_text": _truncate_console_text(event.get("target_text")),
+                    "label": event.get("label"),
+                    "confidence": float(event.get("confidence") or 0.0),
+                    "primary_rule": event.get("primary_rule") or "-",
+                },
+            )
             return
         if stage == "doc_summary":
             breakdown = event.get("label_breakdown") or {}
-            """logging.info(
-                "[pseudo-label][summary] doc_id=%s file=%s | candidates=%s pseudo=%s (pos=%s, neg=%s) ambiguous=%s",
-                event.get("doc_id"),
-                event.get("file_name"),
-                event.get("num_candidate_edges"),
-                event.get("num_pseudo_labels"),
-                breakdown.get("positive", 0),
-                breakdown.get("negative", 0),
-                event.get("ambiguous_edges", 0),
-            )"""
+            _log_jointlk_stage(
+                "pseudo-doc-summary",
+                {
+                    "doc_id": event.get("doc_id"),
+                    "file_name": event.get("file_name"),
+                    "num_candidate_edges": event.get("num_candidate_edges"),
+                    "num_pseudo_labels": event.get("num_pseudo_labels"),
+                    "positive": breakdown.get("positive", 0),
+                    "negative": breakdown.get("negative", 0),
+                    "ambiguous_edges": event.get("ambiguous_edges", 0),
+                },
+            )
 
     return _hook
-
 
 def maybe_run_auto_pseudo_label_pipeline(graph, *, file_name: str, doc_id: str, kg_scope: str, kg_id: str):
     cfg = AutoPseudoPipelineConfig.from_env()
