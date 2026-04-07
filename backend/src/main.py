@@ -32,6 +32,7 @@ import json
 import subprocess
 import threading
 from pathlib import Path
+from collections import defaultdict
 
 warnings.filterwarnings("ignore")
 load_dotenv()
@@ -58,6 +59,18 @@ def _truncate_console_text(text, max_len: int = 28) -> str:
     if len(value) <= max_len:
         return value
     return value[: max_len - 3] + "..."
+def _sanitize_fs_part(value: str) -> str:
+    """
+    Local safe filename sanitizer.
+    Avoid depending on external helper availability across branches/environments.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return "unknown"
+    text = re.sub(r"[\\/:*?\"<>|\r\n\t]+", "_", text)
+    text = re.sub(r"\s+", "_", text)
+    text = text.strip("._")
+    return text[:180] if len(text) > 180 else text
 
 def _log_jointlk_stage(stage: str, payload: dict) -> None:
     """Unified end-to-end console logger for JointLK pipeline stages."""
@@ -186,6 +199,287 @@ def maybe_run_auto_pseudo_label_pipeline(graph, *, file_name: str, doc_id: str, 
         logging.info("[pseudo-label][preview] no pseudo-label generated for file=%s", file_name)
 
     return result
+def _auto_jointlk_train_enabled() -> bool:
+    return _get_bool_env("AUTO_JOINTLK_TRAIN_AFTER_UPLOAD", True)
+
+
+def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, doc_id: str):
+    """
+    Trigger causal JointLK training automatically after pseudo labels are generated.
+    The training process runs asynchronously in a background thread.
+    """
+    if not _auto_jointlk_train_enabled():
+        logging.info("[jointlk-train] skipped because AUTO_JOINTLK_TRAIN_AFTER_UPLOAD is disabled")
+        return {"enabled": False, "started": False, "reason": "disabled"}
+
+    if not pseudo_result or not pseudo_result.get("ok"):
+        logging.info("[jointlk-train] skipped because pseudo pipeline result is not ok")
+        return {"enabled": True, "started": False, "reason": "pseudo_not_ok"}
+
+    num_pseudo_labels = int(pseudo_result.get("num_pseudo_labels") or 0)
+    if num_pseudo_labels <= 0:
+        logging.info("[jointlk-train] skipped because no pseudo labels were generated")
+        return {"enabled": True, "started": False, "reason": "no_pseudo_labels"}
+
+    manifest_paths = pseudo_result.get("paths") or {}
+    train_jsonl = manifest_paths.get("jointlk_multitask_train_jsonl")
+    if not train_jsonl:
+        logging.info("[jointlk-train] skipped because train_jsonl is missing")
+        return {"enabled": True, "started": False, "reason": "missing_train_jsonl"}
+
+    repo_root = Path(__file__).resolve().parents[2]
+    train_script = repo_root / "experiments" / "causal_jointlk" / "train_causal_jointlk.py"
+    if not train_script.exists():
+        logging.warning("[jointlk-train] script not found: %s", train_script)
+        return {"enabled": True, "started": False, "reason": "missing_train_script"}
+
+    output_root = os.getenv("AUTO_JOINTLK_TRAIN_OUTPUT_ROOT", "./outputs/auto_jointlk_training")
+    output_dir = Path(output_root) / _sanitize_fs_part(doc_id or file_name)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_file = output_dir / "train.log"
+
+    dev_jsonl = os.getenv("AUTO_JOINTLK_TRAIN_DEV_JSONL", train_jsonl)
+    model_name = os.getenv("AUTO_JOINTLK_TRAIN_MODEL_NAME", "roberta-large")
+    prior_config = os.getenv("AUTO_JOINTLK_TRAIN_PRIOR_CONFIG", "configs/causal_prior.yaml")
+    epochs = str(_get_int_env("AUTO_JOINTLK_TRAIN_EPOCHS", 3))
+    batch_size = str(_get_int_env("AUTO_JOINTLK_TRAIN_BATCH_SIZE", 4))
+    lr = os.getenv("AUTO_JOINTLK_TRAIN_LR", "2e-5")
+
+    command = [
+        sys.executable,
+        str(train_script),
+        "--train_jsonl",
+        str(train_jsonl),
+        "--dev_jsonl",
+        str(dev_jsonl),
+        "--prior_config",
+        str(prior_config),
+        "--model_name",
+        str(model_name),
+        "--output_dir",
+        str(output_dir),
+        "--epochs",
+        epochs,
+        "--batch_size",
+        batch_size,
+        "--lr",
+        lr,
+    ]
+
+    def _run():
+        with log_file.open("a", encoding="utf-8") as fout:
+            fout.write(
+                f"\n\n=== auto jointlk training started at {datetime.now().isoformat()} "
+                f"for doc_id={doc_id} file_name={file_name} ===\n"
+            )
+            fout.write("CMD: " + " ".join(command) + "\n")
+            fout.flush()
+            proc = subprocess.Popen(
+                command,
+                cwd=str(repo_root),
+                stdout=fout,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            code = proc.wait()
+            fout.write(f"\n=== auto jointlk training finished with exit_code={code} ===\n")
+            fout.flush()
+            logging.info(
+                "[jointlk-train] finished for doc_id=%s file_name=%s exit_code=%s log=%s",
+                doc_id,
+                file_name,
+                code,
+                str(log_file),
+            )
+
+    thread = threading.Thread(target=_run, daemon=True, name=f"jointlk-train-{_sanitize_fs_part(doc_id or file_name)}")
+    thread.start()
+
+    logging.info(
+        "[jointlk-train] started in background for doc_id=%s file_name=%s output_dir=%s log=%s",
+        doc_id,
+        file_name,
+        str(output_dir),
+        str(log_file),
+    )
+    return {
+        "enabled": True,
+        "started": True,
+        "train_jsonl": str(train_jsonl),
+        "dev_jsonl": str(dev_jsonl),
+        "output_dir": str(output_dir),
+        "log_file": str(log_file),
+        "epochs": int(epochs),
+        "batch_size": int(batch_size),
+        "model_name": model_name,
+    }
+
+
+def _read_jsonl_rows(path: str, max_rows: int = 20000):
+    rows = []
+    with open(path, "r", encoding="utf-8") as f:
+        for idx, line in enumerate(f):
+            if idx >= max_rows:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except Exception:
+                continue
+    return rows
+
+
+def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: str, doc_id: str):
+    """
+    Build causal-edge/chain preview directly from pseudo labels so users can see
+    "current extracted causal chains" immediately after upload.
+    """
+    if not pseudo_result or not pseudo_result.get("ok"):
+        return {"ok": False, "reason": "pseudo_not_ok", "num_edges": 0, "num_chains": 0}
+
+    manifest_paths = pseudo_result.get("paths") or {}
+    train_jsonl = manifest_paths.get("jointlk_multitask_train_jsonl")
+    if not train_jsonl or not os.path.exists(train_jsonl):
+        return {"ok": False, "reason": "missing_train_jsonl", "num_edges": 0, "num_chains": 0}
+
+    min_causal_conf = float(os.getenv("AUTO_JOINTLK_CHAIN_MIN_CAUSAL_CONF", "0.55"))
+    top_k_edges = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_EDGES", "20"))
+    top_k_chains = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_CHAINS", "8"))
+    max_chain_depth = int(os.getenv("AUTO_JOINTLK_CHAIN_MAX_DEPTH", "4"))
+
+    rows = _read_jsonl_rows(train_jsonl)
+    causal_edges = []
+    for row in rows:
+        is_pos = int(row.get("causal_labels", row.get("silver_edge_causal", -1)) or -1) == 1
+        causal_conf = float(row.get("causal_conf", 0.0) or 0.0)
+        relaxed_pos = (not is_pos) and causal_conf >= min_causal_conf
+        if not (is_pos or relaxed_pos):
+            continue
+        edge = {
+            "doc_id": row.get("doc_id"),
+            "source_node_id": row.get("source_node_id"),
+            "source_text": row.get("source_text"),
+            "target_node_id": row.get("target_node_id"),
+            "target_text": row.get("target_text"),
+            "relation_type": row.get("relation_type"),
+            "causal_label": 1 if is_pos else 0,
+            "causal_conf": causal_conf,
+            "enable_label": int(row.get("enable_labels", row.get("silver_edge_enable", -1)) or -1),
+            "dir_label": int(row.get("dir_labels", row.get("silver_causal_dir", -1)) or -1),
+            "temporal_label": int(row.get("temp_labels", row.get("silver_temporal_before", -1)) or -1),
+            "review_status": row.get("review_status"),
+        }
+        edge["score"] = float(edge["causal_conf"]) + 0.05 * max(edge["enable_label"], 0)
+        causal_edges.append(edge)
+
+    if not causal_edges:
+        # fallback: provide likely causal candidates for inspection even if no hard positive edges
+        soft_threshold = float(os.getenv("AUTO_JOINTLK_CHAIN_SOFT_MIN_CAUSAL_CONF", "0.30"))
+        for row in rows:
+            causal_conf = float(row.get("causal_conf", 0.0) or 0.0)
+            if causal_conf < soft_threshold:
+                continue
+            edge = {
+                "doc_id": row.get("doc_id"),
+                "source_node_id": row.get("source_node_id"),
+                "source_text": row.get("source_text"),
+                "target_node_id": row.get("target_node_id"),
+                "target_text": row.get("target_text"),
+                "relation_type": row.get("relation_type"),
+                "causal_label": int(row.get("causal_labels", row.get("silver_edge_causal", -1)) or -1),
+                "causal_conf": causal_conf,
+                "enable_label": int(row.get("enable_labels", row.get("silver_edge_enable", -1)) or -1),
+                "dir_label": int(row.get("dir_labels", row.get("silver_causal_dir", -1)) or -1),
+                "temporal_label": int(row.get("temp_labels", row.get("silver_temporal_before", -1)) or -1),
+                "review_status": row.get("review_status"),
+                "candidate_type": "soft",
+            }
+            edge["score"] = float(edge["causal_conf"]) + 0.03 * max(edge["enable_label"], 0)
+            causal_edges.append(edge)
+
+    causal_edges.sort(key=lambda x: x["score"], reverse=True)
+    top_edges = causal_edges[:max(top_k_edges, 0)]
+
+    out_adj = defaultdict(list)
+    in_deg = defaultdict(int)
+    for e in top_edges:
+        s = str(e.get("source_node_id") or "")
+        t = str(e.get("target_node_id") or "")
+        if not s or not t or s == t:
+            continue
+        out_adj[s].append(e)
+        in_deg[t] += 1
+        in_deg.setdefault(s, 0)
+
+    roots = [nid for nid, deg in in_deg.items() if deg == 0]
+    if not roots:
+        roots = list(out_adj.keys())
+
+    chains = []
+
+    def _dfs(node_id, path_edges, visited):
+        if len(path_edges) >= max_chain_depth:
+            chains.append(list(path_edges))
+            return
+        next_edges = out_adj.get(node_id, [])
+        if not next_edges:
+            if path_edges:
+                chains.append(list(path_edges))
+            return
+        for e in next_edges:
+            nxt = str(e.get("target_node_id") or "")
+            if not nxt or nxt in visited:
+                continue
+            path_edges.append(e)
+            visited.add(nxt)
+            _dfs(nxt, path_edges, visited)
+            visited.remove(nxt)
+            path_edges.pop()
+
+    for r in roots:
+        _dfs(r, [], {r})
+
+    chain_rows = []
+    for path in chains:
+        if not path:
+            continue
+        chain_score = sum(float(x.get("score", 0.0)) for x in path) / max(1, len(path))
+        chain_text = " -> ".join([str(path[0].get("source_text") or path[0].get("source_node_id") or "")] + [
+            str(x.get("target_text") or x.get("target_node_id") or "") for x in path
+        ])
+        chain_rows.append(
+            {
+                "length": len(path),
+                "score": round(chain_score, 4),
+                "chain_text": chain_text,
+                "edges": path,
+            }
+        )
+    chain_rows.sort(key=lambda x: (x["length"], x["score"]), reverse=True)
+    chain_rows = chain_rows[:max(top_k_chains, 0)]
+
+    _log_jointlk_stage(
+        "causal-chain-preview",
+        {
+            "file_name": file_name,
+            "doc_id": doc_id,
+            "num_causal_edges": len(causal_edges),
+            "num_chain_candidates": len(chain_rows),
+            "min_causal_conf": min_causal_conf,
+            "top_chain": (chain_rows[0]["chain_text"] if chain_rows else None),
+        },
+    )
+    return {
+        "ok": True,
+        "num_edges": len(causal_edges),
+        "num_chains": len(chain_rows),
+        "min_causal_conf": min_causal_conf,
+        "top_edges": top_edges,
+        "top_chains": chain_rows,
+        "train_jsonl": train_jsonl,
+    }
 
 def _auto_jointlk_train_enabled() -> bool:
     return _get_bool_env("AUTO_JOINTLK_TRAIN_AFTER_UPLOAD", True)
@@ -625,6 +919,7 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
     if result[0]['Status'] != 'Processing':
         obj_source_node = sourceNode()
         status = "Processing"
+
         obj_source_node.file_name = file_name
         obj_source_node.status = status
         obj_source_node.total_chunks = len(chunks)
@@ -713,6 +1008,8 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
         processed_time = end_time - start_time
         pseudo_result = None
         auto_train_result = None
+        causal_chain_preview = None
+        auto_train_result = None
         obj_source_node = sourceNode()
         obj_source_node.file_name = file_name
         obj_source_node.doc_id = ctx.doc_id
@@ -779,6 +1076,34 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
 
                 # merged_file_path have value only when file uploaded from local
             try:
+                causal_chain_preview = build_causal_chain_preview_from_pseudo(
+                    pseudo_result=pseudo_result or {},
+                    file_name=file_name,
+                    doc_id=ctx.doc_id,
+                )
+                if causal_chain_preview and causal_chain_preview.get("ok"):
+                    _log_jointlk_stage(
+                        "causal-chain-exported",
+                        {
+                            "file_name": file_name,
+                            "doc_id": ctx.doc_id,
+                            "num_edges": causal_chain_preview.get("num_edges"),
+                            "num_chains": causal_chain_preview.get("num_chains"),
+                            "top_chain": (
+                                (causal_chain_preview.get("top_chains") or [{}])[0].get("chain_text")
+                                if causal_chain_preview.get("top_chains")
+                                else None
+                            ),
+                        },
+                    )
+            except Exception as e:
+                causal_chain_preview = {
+                    "ok": False,
+                    "error": str(e),
+                }
+                logging.exception(f"[jointlk-chain] failed to build preview for file={file_name}: {e}")
+
+            try:
                 auto_train_result = maybe_trigger_auto_jointlk_training(
                     pseudo_result=pseudo_result or {},
                     file_name=file_name,
@@ -826,6 +1151,7 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
             "model": model,
             "success_count": 1,
             "pseudo_label_summary": pseudo_result if job_status == "Completed" else None,
+            "jointlk_causal_chain_preview": causal_chain_preview if job_status == "Completed" else None,
             "jointlk_training_summary": auto_train_result if job_status == "Completed" else None,
             "kg_quality_comparison": comparison_summary if job_status == "Completed" else None,
         }

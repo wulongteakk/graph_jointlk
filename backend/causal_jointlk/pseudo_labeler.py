@@ -506,7 +506,13 @@ class CausalPseudoLabeler:
                 str(evidence_feats.get("matched_evidence_text") or ""),
             ]
         )
-        edge_causal = task_factory.label_edge_causal(shared_text, relation_type_u, evidence_feats)
+        edge_causal = task_factory.label_edge_causal(
+            shared_text,
+            relation_type_u,
+            evidence_feats,
+            source_layer=source_layer,
+            target_layer=target_layer,
+        )
         edge_enable = task_factory.label_edge_enable(shared_text, relation_type_u, evidence_feats)
         dir_decision = task_factory.label_edge_direction(shared_text, evidence_feats)
         temporal_decision = task_factory.label_edge_temporal(shared_text, evidence_feats)

@@ -75,13 +75,37 @@ class PseudoTaskFactory:
             return 0
         return ABSTAIN
 
-    def label_edge_causal(self, text: str, relation_type: str, evidence: Dict[str, Any]) -> TaskDecision:
+    def label_edge_causal(
+        self,
+        text: str,
+        relation_type: str,
+        evidence: Dict[str, Any],
+        source_layer: Optional[str] = None,
+        target_layer: Optional[str] = None,
+    ) -> TaskDecision:
         text_n = normalize_text(text)
         hits = _contains_any(text_n, self.causal_kw)
         score = 0.15 + 0.25 * bool(hits) + 0.20 * bool(evidence.get("shared_evidence"))
         if str(relation_type).upper() in {"CAUSES", "LEADS_TO", "RESULTS_IN", "TRIGGERS", "INDUCES"}:
             score += 0.25
             hits.append("rel=causal")
+        # Domain relation priors for safety-incident documents
+        rel_u = str(relation_type or "").upper()
+        if rel_u in {"AFFECTS", "INJURES", "KILLS", "HARMS"}:
+            score += 0.28
+            hits.append("rel=impact")
+        elif any(x in rel_u for x in ["CAUSE", "LEAD", "RESULT", "TRIGGER", "INDUCE"]):
+            score += 0.25
+            hits.append("rel=causal_like")
+
+        src = str(source_layer or "").upper()
+        tgt = str(target_layer or "").upper()
+        if src in {"HAZARDEVENT", "CAUSE", "RISK", "EVENT", "UNSAFEACTION", "MALFUNCTION"} and tgt in {
+            "PERSON", "HARMEVENT", "OUTCOME", "CONSEQUENCE", "INJURY", "DEATH"
+        }:
+            score += 0.22
+            hits.append("layer=hazard_to_outcome")
+
         if evidence.get("negation_hit"):
             score -= 0.30
             hits.append("negation")

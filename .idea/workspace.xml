@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="一条龙控制台展示3.0">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="一条龙控制台展示4.0">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/data/cpnet/conceptnet-assertions-5.6.0.csv" afterDir="false" />
@@ -20,7 +20,10 @@
       <change beforePath="$PROJECT_DIR$/JointLK/utils/data_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/data_utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/graph.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/graph.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK/utils/grounding.py" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK/utils/grounding.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_labeler.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_labeler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_tasks.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_tasks.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/configs/causal_pseudo_label_rules.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/configs/causal_pseudo_label_rules.yaml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -268,14 +271,6 @@
       <workItem from="1753704928935" duration="309000" />
       <workItem from="1753705248627" duration="3199000" />
       <workItem from="1755439688727" duration="17000" />
-    </task>
-    <task id="LOCAL-00002" summary="新修QA_RAG">
-      <option name="closed" value="true" />
-      <created>1757185925275</created>
-      <option name="number" value="00002" />
-      <option name="presentableId" value="LOCAL-00002" />
-      <option name="project" value="LOCAL" />
-      <updated>1757185925275</updated>
     </task>
     <task id="LOCAL-00003" summary="qa_gnn">
       <option name="closed" value="true" />
@@ -661,7 +656,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775098336939</updated>
     </task>
-    <option name="localTasksCounter" value="51" />
+    <task id="LOCAL-00051" summary="一条龙控制台展示4.0">
+      <option name="closed" value="true" />
+      <created>1775099341505</created>
+      <option name="number" value="00051" />
+      <option name="presentableId" value="LOCAL-00051" />
+      <option name="project" value="LOCAL" />
+      <updated>1775099341505</updated>
+    </task>
+    <option name="localTasksCounter" value="52" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -679,7 +682,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="experiment文件补充" />
     <MESSAGE value="jointlk导入检查" />
     <MESSAGE value="名称修正" />
     <MESSAGE value="jointlk输入修正" />
@@ -704,7 +706,8 @@
     <MESSAGE value="一条龙控制台展示1.0" />
     <MESSAGE value="一条龙控制台展示2.0" />
     <MESSAGE value="一条龙控制台展示3.0" />
-    <option name="LAST_COMMIT_MESSAGE" value="一条龙控制台展示3.0" />
+    <MESSAGE value="一条龙控制台展示4.0" />
+    <option name="LAST_COMMIT_MESSAGE" value="一条龙控制台展示4.0" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

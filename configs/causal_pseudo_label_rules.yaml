@@ -49,6 +49,13 @@ strong_triggers:
   - 致使
   - 促使
   - 诱发
+  - 诱导
+  - 直接原因
+  - 间接原因
+  - 根本原因
+  - 原因为
+  - 致
+  - 以致
   - resulted in
   - leads to
   - lead to
@@ -65,6 +72,9 @@ weak_triggers:
   - 相关
   - 伴随
   - 随后
+  - 导向
+  - 引出
+  - 促成
   - then
   - after
   - followed by
@@ -163,11 +173,15 @@ first_induced_cues:
   - 诱因
   - 隐患
   - 根本原因
+  - 先发
+  - 首发
+  - 首要原因
+  - 前置因素
   - root cause
 
 task_thresholds:
   edge_causal:
-    positive: 0.80
+    positive: 0.60
     negative: 0.20
   edge_enable:
     positive: 0.78
