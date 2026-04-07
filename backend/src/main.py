@@ -59,6 +59,29 @@ def _truncate_console_text(text, max_len: int = 28) -> str:
     if len(value) <= max_len:
         return value
     return value[: max_len - 3] + "..."
+
+
+def _resolve_runtime_path(path_value: str, repo_root: Path | None = None) -> Path:
+    """
+    Resolve mixed slash paths (Windows/Unix) into a valid runtime path.
+    It also tries repo-root relative fallback for relative artifact paths.
+    """
+    raw = str(path_value or "").strip()
+    if not raw:
+        return Path("")
+
+    candidates = [
+        Path(raw),
+        Path(raw.replace("\\", "/")),
+        Path(raw.replace("/", "\\")),
+    ]
+    if repo_root is not None:
+        candidates.extend([repo_root / c for c in candidates if not c.is_absolute()])
+
+    for c in candidates:
+        if c.exists():
+            return c
+    return Path(raw.replace("\\", os.sep).replace("/", os.sep))
 def _sanitize_fs_part(value: str) -> str:
     """
     Local safe filename sanitizer.
@@ -228,6 +251,21 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
         return {"enabled": True, "started": False, "reason": "missing_train_jsonl"}
 
     repo_root = Path(__file__).resolve().parents[2]
+    train_jsonl_path = _resolve_runtime_path(train_jsonl, repo_root=repo_root)
+    if not train_jsonl_path.exists():
+        logging.warning(
+            "[jointlk-train] skipped because train_jsonl does not exist at runtime: %s (raw=%s)",
+            str(train_jsonl_path),
+            str(train_jsonl),
+        )
+        return {
+            "enabled": True,
+            "started": False,
+            "reason": "train_jsonl_not_found",
+            "train_jsonl": str(train_jsonl),
+            "resolved_train_jsonl": str(train_jsonl_path),
+        }
+
     train_script = repo_root / "experiments" / "causal_jointlk" / "train_causal_jointlk.py"
     if not train_script.exists():
         logging.warning("[jointlk-train] script not found: %s", train_script)
@@ -238,7 +276,16 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
     output_dir.mkdir(parents=True, exist_ok=True)
     log_file = output_dir / "train.log"
 
-    dev_jsonl = os.getenv("AUTO_JOINTLK_TRAIN_DEV_JSONL", train_jsonl)
+    dev_jsonl = os.getenv("AUTO_JOINTLK_TRAIN_DEV_JSONL", str(train_jsonl_path))
+    dev_jsonl_path = _resolve_runtime_path(dev_jsonl, repo_root=repo_root)
+    if not dev_jsonl_path.exists():
+        logging.info(
+            "[jointlk-train] dev_jsonl not found (%s), fallback to train_jsonl=%s",
+            str(dev_jsonl_path),
+            str(train_jsonl_path),
+        )
+        dev_jsonl_path = train_jsonl_path
+
     model_name = os.getenv("AUTO_JOINTLK_TRAIN_MODEL_NAME", "roberta-large")
     prior_config = os.getenv("AUTO_JOINTLK_TRAIN_PRIOR_CONFIG", "configs/causal_prior.yaml")
     epochs = str(_get_int_env("AUTO_JOINTLK_TRAIN_EPOCHS", 3))
@@ -249,9 +296,9 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
         sys.executable,
         str(train_script),
         "--train_jsonl",
-        str(train_jsonl),
+        str(train_jsonl_path),
         "--dev_jsonl",
-        str(dev_jsonl),
+        str(dev_jsonl_path),
         "--prior_config",
         str(prior_config),
         "--model_name",
@@ -295,6 +342,7 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
     thread = threading.Thread(target=_run, daemon=True, name=f"jointlk-train-{_sanitize_fs_part(doc_id or file_name)}")
     thread.start()
 
+
     logging.info(
         "[jointlk-train] started in background for doc_id=%s file_name=%s output_dir=%s log=%s",
         doc_id,
@@ -305,8 +353,8 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
     return {
         "enabled": True,
         "started": True,
-        "train_jsonl": str(train_jsonl),
-        "dev_jsonl": str(dev_jsonl),
+        "train_jsonl": str(train_jsonl_path),
+        "dev_jsonl": str(dev_jsonl_path),
         "output_dir": str(output_dir),
         "log_file": str(log_file),
         "epochs": int(epochs),
@@ -479,121 +527,6 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
         "top_edges": top_edges,
         "top_chains": chain_rows,
         "train_jsonl": train_jsonl,
-    }
-
-def _auto_jointlk_train_enabled() -> bool:
-    return _get_bool_env("AUTO_JOINTLK_TRAIN_AFTER_UPLOAD", True)
-
-
-def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, doc_id: str):
-    """
-    Trigger causal JointLK training automatically after pseudo labels are generated.
-    The training process runs asynchronously in a background thread.
-    """
-    if not _auto_jointlk_train_enabled():
-        logging.info("[jointlk-train] skipped because AUTO_JOINTLK_TRAIN_AFTER_UPLOAD is disabled")
-        return {"enabled": False, "started": False, "reason": "disabled"}
-
-    if not pseudo_result or not pseudo_result.get("ok"):
-        logging.info("[jointlk-train] skipped because pseudo pipeline result is not ok")
-        return {"enabled": True, "started": False, "reason": "pseudo_not_ok"}
-
-    num_pseudo_labels = int(pseudo_result.get("num_pseudo_labels") or 0)
-    if num_pseudo_labels <= 0:
-        logging.info("[jointlk-train] skipped because no pseudo labels were generated")
-        return {"enabled": True, "started": False, "reason": "no_pseudo_labels"}
-
-    manifest_paths = pseudo_result.get("paths") or {}
-    train_jsonl = manifest_paths.get("jointlk_multitask_train_jsonl")
-    if not train_jsonl:
-        logging.info("[jointlk-train] skipped because train_jsonl is missing")
-        return {"enabled": True, "started": False, "reason": "missing_train_jsonl"}
-
-    repo_root = Path(__file__).resolve().parents[2]
-    train_script = repo_root / "experiments" / "causal_jointlk" / "train_causal_jointlk.py"
-    if not train_script.exists():
-        logging.warning("[jointlk-train] script not found: %s", train_script)
-        return {"enabled": True, "started": False, "reason": "missing_train_script"}
-
-    output_root = os.getenv("AUTO_JOINTLK_TRAIN_OUTPUT_ROOT", "./outputs/auto_jointlk_training")
-    output_dir = Path(output_root) / sanitize_fs_part(doc_id or file_name)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    log_file = output_dir / "train.log"
-
-    dev_jsonl = os.getenv("AUTO_JOINTLK_TRAIN_DEV_JSONL", train_jsonl)
-    model_name = os.getenv("AUTO_JOINTLK_TRAIN_MODEL_NAME", "roberta-large")
-    prior_config = os.getenv("AUTO_JOINTLK_TRAIN_PRIOR_CONFIG", "configs/causal_prior.yaml")
-    epochs = str(_get_int_env("AUTO_JOINTLK_TRAIN_EPOCHS", 3))
-    batch_size = str(_get_int_env("AUTO_JOINTLK_TRAIN_BATCH_SIZE", 4))
-    lr = os.getenv("AUTO_JOINTLK_TRAIN_LR", "2e-5")
-
-    command = [
-        sys.executable,
-        str(train_script),
-        "--train_jsonl",
-        str(train_jsonl),
-        "--dev_jsonl",
-        str(dev_jsonl),
-        "--prior_config",
-        str(prior_config),
-        "--model_name",
-        str(model_name),
-        "--output_dir",
-        str(output_dir),
-        "--epochs",
-        epochs,
-        "--batch_size",
-        batch_size,
-        "--lr",
-        lr,
-    ]
-
-    def _run():
-        with log_file.open("a", encoding="utf-8") as fout:
-            fout.write(
-                f"\n\n=== auto jointlk training started at {datetime.now().isoformat()} "
-                f"for doc_id={doc_id} file_name={file_name} ===\n"
-            )
-            fout.write("CMD: " + " ".join(command) + "\n")
-            fout.flush()
-            proc = subprocess.Popen(
-                command,
-                cwd=str(repo_root),
-                stdout=fout,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-            code = proc.wait()
-            fout.write(f"\n=== auto jointlk training finished with exit_code={code} ===\n")
-            fout.flush()
-            logging.info(
-                "[jointlk-train] finished for doc_id=%s file_name=%s exit_code=%s log=%s",
-                doc_id,
-                file_name,
-                code,
-                str(log_file),
-            )
-
-    thread = threading.Thread(target=_run, daemon=True, name=f"jointlk-train-{sanitize_fs_part(doc_id or file_name)}")
-    thread.start()
-
-    logging.info(
-        "[jointlk-train] started in background for doc_id=%s file_name=%s output_dir=%s log=%s",
-        doc_id,
-        file_name,
-        str(output_dir),
-        str(log_file),
-    )
-    return {
-        "enabled": True,
-        "started": True,
-        "train_jsonl": str(train_jsonl),
-        "dev_jsonl": str(dev_jsonl),
-        "output_dir": str(output_dir),
-        "log_file": str(log_file),
-        "epochs": int(epochs),
-        "batch_size": int(batch_size),
-        "model_name": model_name,
     }
 
 def create_source_node_graph_url_s3(graph, model, source_url, aws_access_key_id, aws_secret_access_key, source_type):
