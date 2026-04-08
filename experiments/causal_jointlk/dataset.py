@@ -241,4 +241,40 @@ def _resolve_input_path(path_str: str) -> Path:
     for candidate in candidates:
         if candidate.exists():
             return candidate
+    recovered = _recover_manual_review_jsonl(candidates[0] if candidates else Path(raw))
+    if recovered is not None:
+        return recovered
     return candidates[0] if candidates else Path(raw)
+
+
+def _recover_manual_review_jsonl(missing_path: Path) -> Optional[Path]:
+    """
+    针对 manual_review 目录名被截断/轻微清洗差异的场景做兜底恢复。
+    """
+    if missing_path.suffix.lower() != ".jsonl":
+        return None
+    target_name = missing_path.name
+    expected_dir = missing_path.parent.name
+    if target_name != "jointlk_multitask_train.jsonl":
+        return None
+
+    search_roots = [Path.cwd() / "artifacts" / "manual_review", REPO_ROOT / "artifacts" / "manual_review"]
+    all_hits: List[Path] = []
+    for root in search_roots:
+        if root.exists():
+            all_hits.extend(root.rglob(target_name))
+    if not all_hits:
+        return None
+
+    expected_norm = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", expected_dir).lower()
+
+    def _score(p: Path) -> tuple[int, float]:
+        parent_norm = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", p.parent.name).lower()
+        overlap = 0
+        for a, b in zip(expected_norm, parent_norm):
+            if a != b:
+                break
+            overlap += 1
+        return overlap, p.stat().st_mtime
+
+    return sorted(all_hits, key=_score, reverse=True)[0]

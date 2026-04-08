@@ -55,7 +55,38 @@ def resolve_input_path(path_str: str) -> Path:
     for candidate in candidates:
         if candidate.exists():
             return candidate
+    recovered = recover_manual_review_jsonl(candidates[0] if candidates else Path(raw))
+    if recovered is not None:
+        return recovered
     return candidates[0] if candidates else Path(raw)
+
+
+def recover_manual_review_jsonl(missing_path: Path) -> Optional[Path]:
+    if missing_path.suffix.lower() != ".jsonl":
+        return None
+    if missing_path.name != "jointlk_multitask_train.jsonl":
+        return None
+    expected_dir = missing_path.parent.name
+    search_roots = [Path.cwd() / "artifacts" / "manual_review", REPO_ROOT / "artifacts" / "manual_review"]
+    all_hits: List[Path] = []
+    for root in search_roots:
+        if root.exists():
+            all_hits.extend(root.rglob("jointlk_multitask_train.jsonl"))
+    if not all_hits:
+        return None
+
+    expected_norm = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", expected_dir).lower()
+
+    def _score(p: Path) -> tuple[int, float]:
+        parent_norm = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", p.parent.name).lower()
+        overlap = 0
+        for a, b in zip(expected_norm, parent_norm):
+            if a != b:
+                break
+            overlap += 1
+        return overlap, p.stat().st_mtime
+
+    return sorted(all_hits, key=_score, reverse=True)[0]
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -294,10 +325,20 @@ def main() -> None:
     parser.add_argument("--weight_pseudo_pending", type=float, default=0.80)
     parser.add_argument("--include_label_sources", nargs="*", default=None)
     parser.add_argument("--exclude_label_sources", nargs="*", default=None)
+
     args = parser.parse_args()
+    raw_train_jsonl = args.train_jsonl
+    raw_dev_jsonl = args.dev_jsonl
+    raw_prior_config = args.prior_config
     args.train_jsonl = str(resolve_input_path(args.train_jsonl))
     args.dev_jsonl = str(resolve_input_path(args.dev_jsonl))
     args.prior_config = str(resolve_input_path(args.prior_config))
+    if raw_train_jsonl != args.train_jsonl:
+        print(f"[jointlk-train] resolved train_jsonl: {raw_train_jsonl} -> {args.train_jsonl}")
+    if raw_dev_jsonl != args.dev_jsonl:
+        print(f"[jointlk-train] resolved dev_jsonl: {raw_dev_jsonl} -> {args.dev_jsonl}")
+    if raw_prior_config != args.prior_config:
+        print(f"[jointlk-train] resolved prior_config: {raw_prior_config} -> {args.prior_config}")
 
     set_seed(args.seed)
 
