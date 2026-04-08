@@ -4,10 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="一条龙控制台展示7.0">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="一条龙控制台展示8.0">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/experiments/causal_jointlk/dataset.py" beforeDir="false" afterPath="$PROJECT_DIR$/experiments/causal_jointlk/dataset.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/experiments/causal_jointlk/train_causal_jointlk.py" beforeDir="false" afterPath="$PROJECT_DIR$/experiments/causal_jointlk/train_causal_jointlk.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -255,14 +256,6 @@
       <workItem from="1753704928935" duration="309000" />
       <workItem from="1753705248627" duration="3199000" />
       <workItem from="1755439688727" duration="17000" />
-    </task>
-    <task id="LOCAL-00006" summary="增加量化模块">
-      <option name="closed" value="true" />
-      <created>1762764945486</created>
-      <option name="number" value="00006" />
-      <option name="presentableId" value="LOCAL-00006" />
-      <option name="project" value="LOCAL" />
-      <updated>1762764945486</updated>
     </task>
     <task id="LOCAL-00007" summary="量化模块更新">
       <option name="closed" value="true" />
@@ -648,7 +641,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775617081477</updated>
     </task>
-    <option name="localTasksCounter" value="55" />
+    <task id="LOCAL-00055" summary="一条龙控制台展示8.0">
+      <option name="closed" value="true" />
+      <created>1775619606630</created>
+      <option name="number" value="00055" />
+      <option name="presentableId" value="LOCAL-00055" />
+      <option name="project" value="LOCAL" />
+      <updated>1775619606630</updated>
+    </task>
+    <option name="localTasksCounter" value="56" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -666,7 +667,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="jointlk输入修正2.0" />
     <MESSAGE value="jointlk输入修正3.0" />
     <MESSAGE value="jointlk输入修正4.0" />
     <MESSAGE value="jointlk输入修正5.0" />
@@ -691,7 +691,8 @@
     <MESSAGE value="一条龙控制台展示5.0" />
     <MESSAGE value="一条龙控制台展示6.0" />
     <MESSAGE value="一条龙控制台展示7.0" />
-    <option name="LAST_COMMIT_MESSAGE" value="一条龙控制台展示7.0" />
+    <MESSAGE value="一条龙控制台展示8.0" />
+    <option name="LAST_COMMIT_MESSAGE" value="一条龙控制台展示8.0" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
-
+import os
 from torch.utils.data import Dataset
 
 from modeling.causal_jointlk_io import (
@@ -13,6 +13,9 @@ from modeling.causal_jointlk_io import (
     load_prior_config,
 )
 
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_LABEL_WEIGHTS = {
     "gold_chain": 1.00,
@@ -68,7 +71,7 @@ class CausalEdgeDataset(Dataset):
         include_label_sources: Optional[Sequence[str]] = None,
         exclude_label_sources: Optional[Sequence[str]] = None,
     ):
-        self.jsonl_path = Path(jsonl_path)
+        self.jsonl_path = _resolve_input_path(jsonl_path)
         self.prior_config = load_prior_config(prior_config_path)
         self.relation_to_id = build_relation_to_id(self.prior_config)
         self.node_type_to_id = build_node_type_to_id(self.prior_config)
@@ -81,7 +84,10 @@ class CausalEdgeDataset(Dataset):
 
     def _load_records(self) -> List[Dict[str, Any]]:
         if not self.jsonl_path.exists():
-            raise FileNotFoundError(f"dataset not found: {self.jsonl_path}")
+            raise FileNotFoundError(
+                "dataset not found: "
+                f"{self.jsonl_path} (cwd={Path.cwd()}, repo_root={REPO_ROOT})"
+            )
 
         rows: List[Dict[str, Any]] = []
         with self.jsonl_path.open("r", encoding="utf-8") as fin:
@@ -206,3 +212,33 @@ def _normalize_cf_role(value: Any) -> str:
     if role_int == 0:
         return "negative"
     return "none"
+
+def _resolve_input_path(path_str: str) -> Path:
+    """
+    兼容从任意工作目录启动训练脚本的相对路径。
+    优先级：
+    1) 原始路径（绝对路径或当前工作目录相对）
+    2) 仓库根目录相对
+    """
+    raw = str(path_str).strip().strip('"').strip("'")
+    normalized_variants = {
+        raw,
+        raw.replace("\\", "/"),
+        raw.replace("/", os.sep),
+        raw.replace("\\", os.sep),
+    }
+
+    candidates: List[Path] = []
+    seen: set[str] = set()
+    for variant in normalized_variants:
+        p = Path(variant).expanduser()
+        for candidate in (p, REPO_ROOT / p):
+            key = str(candidate)
+            if key not in seen:
+                seen.add(key)
+                candidates.append(candidate)
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else Path(raw)

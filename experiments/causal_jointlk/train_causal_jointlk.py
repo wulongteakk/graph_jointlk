@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -33,6 +35,27 @@ from modeling.causal_jointlk_io import batchify_examples
 from modeling.modeling_causal_jointlk import CausalJointLKModel, compute_training_loss
 from backend.causal_jointlk.runtime_trace import RuntimeTracer
 
+def resolve_input_path(path_str: str) -> Path:
+    raw = str(path_str).strip().strip('"').strip("'")
+    normalized_variants = {
+        raw,
+        raw.replace("\\", "/"),
+        raw.replace("/", os.sep),
+        raw.replace("\\", os.sep),
+    }
+    candidates: List[Path] = []
+    seen: set[str] = set()
+    for variant in normalized_variants:
+        p = Path(variant).expanduser()
+        for candidate in (p, REPO_ROOT / p):
+            key = str(candidate)
+            if key not in seen:
+                seen.add(key)
+                candidates.append(candidate)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else Path(raw)
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -272,8 +295,12 @@ def main() -> None:
     parser.add_argument("--include_label_sources", nargs="*", default=None)
     parser.add_argument("--exclude_label_sources", nargs="*", default=None)
     args = parser.parse_args()
+    args.train_jsonl = str(resolve_input_path(args.train_jsonl))
+    args.dev_jsonl = str(resolve_input_path(args.dev_jsonl))
+    args.prior_config = str(resolve_input_path(args.prior_config))
 
     set_seed(args.seed)
+
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
