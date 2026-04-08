@@ -225,6 +225,69 @@ def maybe_run_auto_pseudo_label_pipeline(graph, *, file_name: str, doc_id: str, 
 def _auto_jointlk_train_enabled() -> bool:
     return _get_bool_env("AUTO_JOINTLK_TRAIN_AFTER_UPLOAD", True)
 
+def _build_jointlk_train_attempts(model_name: str, batch_size: int):
+    """
+    Build a conservative fallback plan to improve training success rate.
+    Typical failure case in production is GPU OOM on large backbone + large batch.
+    """
+    normalized = str(model_name or "").strip() or "roberta-large"
+    base_batch = max(1, int(batch_size))
+
+    attempts = [
+        {
+            "model_name": normalized,
+            "batch_size": base_batch,
+            "freeze_lm": False,
+            "force_cpu": False,
+            "reason": "primary",
+        }
+    ]
+
+    # GPU-memory-friendly fallback: smaller batch + freeze LM encoder
+    attempts.append(
+        {
+            "model_name": normalized,
+            "batch_size": max(1, base_batch // 2),
+            "freeze_lm": True,
+            "force_cpu": False,
+            "reason": "retry_freeze_lm_and_smaller_batch",
+        }
+    )
+
+    # Lighter model fallback for most memory-related failures
+    if normalized != "roberta-base":
+        attempts.append(
+            {
+                "model_name": "roberta-base",
+                "batch_size": 1,
+                "freeze_lm": True,
+                "force_cpu": False,
+                "reason": "retry_smaller_backbone",
+            }
+        )
+
+    # Final safety fallback: CPU path (slow but much less likely to OOM)
+    attempts.append(
+        {
+            "model_name": "distilroberta-base",
+            "batch_size": 1,
+            "freeze_lm": True,
+            "force_cpu": True,
+            "reason": "retry_cpu_safe_mode",
+        }
+    )
+
+    # de-duplicate by effective config
+    deduped = []
+    seen = set()
+    for it in attempts:
+        key = (it["model_name"], int(it["batch_size"]), bool(it["freeze_lm"]), bool(it["force_cpu"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(it)
+    return deduped
+
 
 def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, doc_id: str):
     """
@@ -289,29 +352,35 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
     model_name = os.getenv("AUTO_JOINTLK_TRAIN_MODEL_NAME", "roberta-large")
     prior_config = os.getenv("AUTO_JOINTLK_TRAIN_PRIOR_CONFIG", "configs/causal_prior.yaml")
     epochs = str(_get_int_env("AUTO_JOINTLK_TRAIN_EPOCHS", 3))
-    batch_size = str(_get_int_env("AUTO_JOINTLK_TRAIN_BATCH_SIZE", 4))
+    batch_size_int = _get_int_env("AUTO_JOINTLK_TRAIN_BATCH_SIZE", 4)
+    batch_size = str(batch_size_int)
     lr = os.getenv("AUTO_JOINTLK_TRAIN_LR", "2e-5")
+    attempt_plan = _build_jointlk_train_attempts(model_name=model_name, batch_size=batch_size_int)
 
-    command = [
-        sys.executable,
-        str(train_script),
-        "--train_jsonl",
-        str(train_jsonl_path),
-        "--dev_jsonl",
-        str(dev_jsonl_path),
-        "--prior_config",
-        str(prior_config),
-        "--model_name",
-        str(model_name),
-        "--output_dir",
-        str(output_dir),
-        "--epochs",
-        epochs,
-        "--batch_size",
-        batch_size,
-        "--lr",
-        lr,
-    ]
+    def _build_train_command(*, model_name: str, batch_size: int, freeze_lm: bool):
+        command = [
+            sys.executable,
+            str(train_script),
+            "--train_jsonl",
+            str(train_jsonl_path),
+            "--dev_jsonl",
+            str(dev_jsonl_path),
+            "--prior_config",
+            str(prior_config),
+            "--model_name",
+            str(model_name),
+            "--output_dir",
+            str(output_dir),
+            "--epochs",
+            epochs,
+            "--batch_size",
+            str(max(1, int(batch_size))),
+            "--lr",
+            lr,
+        ]
+        if freeze_lm:
+            command.append("--freeze_lm")
+        return command
 
     def _run():
         with log_file.open("a", encoding="utf-8") as fout:
@@ -319,23 +388,46 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                 f"\n\n=== auto jointlk training started at {datetime.now().isoformat()} "
                 f"for doc_id={doc_id} file_name={file_name} ===\n"
             )
-            fout.write("CMD: " + " ".join(command) + "\n")
-            fout.flush()
-            proc = subprocess.Popen(
-                command,
-                cwd=str(repo_root),
-                stdout=fout,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-            code = proc.wait()
-            fout.write(f"\n=== auto jointlk training finished with exit_code={code} ===\n")
+            final_code = 1
+            for idx, attempt in enumerate(attempt_plan, start=1):
+                attempt_cmd = _build_train_command(
+                    model_name=str(attempt["model_name"]),
+                    batch_size=int(attempt["batch_size"]),
+                    freeze_lm=bool(attempt["freeze_lm"]),
+                )
+                env = os.environ.copy()
+                if bool(attempt.get("force_cpu")):
+                    env["CUDA_VISIBLE_DEVICES"] = ""
+
+                fout.write(
+                    f"\n--- attempt {idx}/{len(attempt_plan)} "
+                    f"reason={attempt.get('reason')} model={attempt.get('model_name')} "
+                    f"batch_size={attempt.get('batch_size')} freeze_lm={attempt.get('freeze_lm')} "
+                    f"force_cpu={attempt.get('force_cpu')} ---\n"
+                )
+                fout.write("CMD: " + " ".join(attempt_cmd) + "\n")
+                fout.flush()
+                proc = subprocess.Popen(
+                    attempt_cmd,
+                    cwd=str(repo_root),
+                    stdout=fout,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    env=env,
+                )
+                final_code = proc.wait()
+                fout.write(f"--- attempt {idx} finished with exit_code={final_code} ---\n")
+                fout.flush()
+                if final_code == 0:
+                    break
+
+            fout.write(f"\n=== auto jointlk training finished with exit_code={final_code} ===\n")
             fout.flush()
             logging.info(
                 "[jointlk-train] finished for doc_id=%s file_name=%s exit_code=%s log=%s",
                 doc_id,
                 file_name,
-                code,
+                final_code,
                 str(log_file),
             )
 
@@ -360,6 +452,7 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
         "epochs": int(epochs),
         "batch_size": int(batch_size),
         "model_name": model_name,
+        "attempt_plan": attempt_plan,
     }
 
 
@@ -1027,6 +1120,23 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
                                 if causal_chain_preview.get("top_chains")
                                 else None
                             ),
+                        },
+                    )
+                    top_chain_rows = causal_chain_preview.get("top_chains") or []
+                    _log_jointlk_stage(
+                        "causal-chain-preview",
+                        {
+                            "file_name": file_name,
+                            "doc_id": ctx.doc_id,
+                            "top_chain_count": len(top_chain_rows),
+                            "top_chain_texts": [
+                                {
+                                    "rank": idx + 1,
+                                    "score": row.get("score"),
+                                    "chain_text": row.get("chain_text"),
+                                }
+                                for idx, row in enumerate(top_chain_rows[:5])
+                            ],
                         },
                     )
             except Exception as e:
