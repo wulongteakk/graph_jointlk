@@ -288,6 +288,39 @@ def _build_jointlk_train_attempts(model_name: str, batch_size: int):
         deduped.append(it)
     return deduped
 
+def _tail_text_file(path: Path, max_lines: int = 120) -> str:
+    try:
+        if not path.exists():
+            return ""
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if max_lines <= 0:
+            return "\n".join(lines)
+        return "\n".join(lines[-max_lines:])
+    except Exception:
+        return ""
+
+
+def _jointlk_failure_hint(log_tail: str) -> str:
+    text = (log_tail or "").lower()
+    if not text:
+        return "unknown_error"
+    if "out of memory" in text or "cuda oom" in text:
+        return "cuda_oom"
+    if "no module named" in text:
+        return "missing_python_dependency"
+    if "can't load tokenizer" in text or "cannot load tokenizer" in text:
+        return "tokenizer_load_failed"
+    if "401 client error" in text or "403 client error" in text:
+        return "model_download_auth_error"
+    if "not found" in text and "jsonl" in text:
+        return "dataset_file_not_found"
+    if "assertionerror" in text:
+        return "assertion_failed"
+    if "runtimeerror" in text and "cuda" in text:
+        return "cuda_runtime_error"
+    if "valueerror" in text:
+        return "value_error"
+    return "unclassified_runtime_error"
 
 def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, doc_id: str):
     """
@@ -423,6 +456,23 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
 
             fout.write(f"\n=== auto jointlk training finished with exit_code={final_code} ===\n")
             fout.flush()
+            log_tail = _tail_text_file(log_file, max_lines=160)
+            failure_hint = _jointlk_failure_hint(log_tail)
+            status_payload = {
+                "doc_id": doc_id,
+                "file_name": file_name,
+                "exit_code": int(final_code),
+                "failure_hint": failure_hint,
+                "finished_at": datetime.now().isoformat(),
+                "log_file": str(log_file),
+            }
+            try:
+                (output_dir / "train_status.json").write_text(
+                    json.dumps(status_payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:
+                logging.exception("[jointlk-train] failed to write train_status.json for doc_id=%s", doc_id)
             logging.info(
                 "[jointlk-train] finished for doc_id=%s file_name=%s exit_code=%s log=%s",
                 doc_id,
@@ -430,6 +480,14 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                 final_code,
                 str(log_file),
             )
+            if final_code != 0:
+                logging.error(
+                    "[jointlk-train] failure_hint=%s doc_id=%s file_name=%s log_tail=\n%s",
+                    failure_hint,
+                    doc_id,
+                    file_name,
+                    log_tail[-4000:],
+                )
 
     thread = threading.Thread(target=_run, daemon=True, name=f"jointlk-train-{_sanitize_fs_part(doc_id or file_name)}")
     thread.start()
