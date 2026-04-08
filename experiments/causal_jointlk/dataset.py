@@ -83,14 +83,15 @@ class CausalEdgeDataset(Dataset):
         self.twin_index = self.build_twin_index()
 
     def _load_records(self) -> List[Dict[str, Any]]:
-        if not self.jsonl_path.exists():
+        if not _path_exists(self.jsonl_path):
             raise FileNotFoundError(
                 "dataset not found: "
                 f"{self.jsonl_path} (cwd={Path.cwd()}, repo_root={REPO_ROOT})"
             )
 
         rows: List[Dict[str, Any]] = []
-        with self.jsonl_path.open("r", encoding="utf-8") as fin:
+        readable_path = _to_windows_long_path(self.jsonl_path)
+        with readable_path.open("r", encoding="utf-8") as fin:
             for line_idx, line in enumerate(fin):
                 line = line.strip()
                 if not line:
@@ -239,7 +240,7 @@ def _resolve_input_path(path_str: str) -> Path:
                 candidates.append(candidate)
 
     for candidate in candidates:
-        if candidate.exists():
+        if _path_exists(candidate):
             return candidate
     recovered = _recover_manual_review_jsonl(candidates[0] if candidates else Path(raw))
     if recovered is not None:
@@ -261,7 +262,7 @@ def _recover_manual_review_jsonl(missing_path: Path) -> Optional[Path]:
     search_roots = [Path.cwd() / "artifacts" / "manual_review", REPO_ROOT / "artifacts" / "manual_review"]
     all_hits: List[Path] = []
     for root in search_roots:
-        if root.exists():
+        if _path_exists(root):
             all_hits.extend(root.rglob(target_name))
     if not all_hits:
         return None
@@ -278,3 +279,29 @@ def _recover_manual_review_jsonl(missing_path: Path) -> Optional[Path]:
         return overlap, p.stat().st_mtime
 
     return sorted(all_hits, key=_score, reverse=True)[0]
+
+
+def _to_windows_long_path(path: Path) -> Path:
+    if os.name != "nt":
+        return path
+    p = Path(path)
+    if not p.is_absolute():
+        p = (Path.cwd() / p).resolve()
+    s = str(p)
+    if s.startswith("\\\\?\\"):
+        return p
+    if s.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + s.lstrip("\\"))
+    return Path("\\\\?\\" + s)
+
+
+def _path_exists(path: Path) -> bool:
+    p = Path(path)
+    if p.exists():
+        return True
+    if os.name == "nt":
+        try:
+            return _to_windows_long_path(p).exists()
+        except Exception:
+            return False
+    return False

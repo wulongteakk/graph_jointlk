@@ -53,7 +53,7 @@ def resolve_input_path(path_str: str) -> Path:
                 seen.add(key)
                 candidates.append(candidate)
     for candidate in candidates:
-        if candidate.exists():
+        if path_exists(candidate):
             return candidate
     recovered = recover_manual_review_jsonl(candidates[0] if candidates else Path(raw))
     if recovered is not None:
@@ -87,6 +87,32 @@ def recover_manual_review_jsonl(missing_path: Path) -> Optional[Path]:
         return overlap, p.stat().st_mtime
 
     return sorted(all_hits, key=_score, reverse=True)[0]
+
+
+def to_windows_long_path(path: Path) -> Path:
+    if os.name != "nt":
+        return path
+    p = Path(path)
+    if not p.is_absolute():
+        p = (Path.cwd() / p).resolve()
+    s = str(p)
+    if s.startswith("\\\\?\\"):
+        return p
+    if s.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + s.lstrip("\\"))
+    return Path("\\\\?\\" + s)
+
+
+def path_exists(path: Path) -> bool:
+    p = Path(path)
+    if p.exists():
+        return True
+    if os.name == "nt":
+        try:
+            return to_windows_long_path(p).exists()
+        except Exception:
+            return False
+    return False
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
