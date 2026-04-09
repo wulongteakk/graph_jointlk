@@ -32,7 +32,7 @@ import json
 import subprocess
 import threading
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict,deque
 
 warnings.filterwarnings("ignore")
 load_dotenv()
@@ -435,6 +435,8 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                 f"for doc_id={doc_id} file_name={file_name} ===\n"
             )
             final_code = 1
+            attempt_results = []
+            max_epoch_seen = 0
             for idx, attempt in enumerate(attempt_plan, start=1):
                 attempt_cmd = _build_train_command(
                     model_name=str(attempt["model_name"]),
@@ -465,14 +467,20 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                     bufsize=1,
                     env=env,
                 )
+                attempt_tail = deque(maxlen=220)
+                attempt_max_epoch = 0
                 if proc.stdout is not None:
                     for raw_line in proc.stdout:
                         fout.write(raw_line)
+                        attempt_tail.append(raw_line.rstrip("\n"))
+                        epoch_progress = _extract_epoch_progress(raw_line)
+                        if epoch_progress is not None:
+                            attempt_max_epoch = max(attempt_max_epoch, int(epoch_progress.get("epoch") or 0))
+                            max_epoch_seen = max(max_epoch_seen, attempt_max_epoch)
                         if show_progress_bar and _should_echo_train_progress(raw_line):
-                            progress = _extract_epoch_progress(raw_line)
-                            if progress is not None:
+                            if epoch_progress is not None:
                                 total_epochs = max(1, int(epochs))
-                                epoch = min(int(progress["epoch"]), total_epochs)
+                                epoch = min(int(epoch_progress["epoch"]), total_epochs)
                                 percent = int(round((epoch / total_epochs) * 100))
                                 bar = _format_progress_bar(percent, width=20)
                                 logging.info(
@@ -483,20 +491,72 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                                     percent,
                                     epoch,
                                     total_epochs,
-                                    float(progress.get("joint_score", 0.0)),
-                                    float(progress.get("edge_f1", 0.0)),
-                                )
+                                    float(epoch_progress.get("joint_score", 0.0)),
+                                    float(epoch_progress.get("edge_f1", 0.0)),
+                                    )
                     proc.stdout.close()
-
+                proc.wait()
+                final_code = int(proc.returncode or 0)
+                attempt_tail_text = "\n".join(attempt_tail)
+                attempt_failure_hint = _jointlk_failure_hint(attempt_tail_text)
+                attempt_result = {
+                    "attempt": int(idx),
+                    "reason": attempt.get("reason"),
+                    "model_name": str(attempt.get("model_name")),
+                    "batch_size": int(attempt.get("batch_size") or 0),
+                    "freeze_lm": bool(attempt.get("freeze_lm")),
+                    "force_cpu": bool(attempt.get("force_cpu")),
+                    "exit_code": int(final_code),
+                    "failure_hint": attempt_failure_hint,
+                    "max_epoch_seen": int(attempt_max_epoch),
+                    "log_tail": attempt_tail_text[-2000:],
+                }
+                attempt_results.append(attempt_result)
+                fout.write(
+                    f"[jointlk-train][attempt-result] attempt={idx} "
+                    f"exit_code={final_code} reason={attempt.get('reason')} "
+                    f"hint={attempt_failure_hint}\n"
+                )
+                fout.flush()
+                if final_code == 0:
+                    break
             fout.write(f"\n=== auto jointlk training finished with exit_code={final_code} ===\n")
             fout.flush()
             log_tail = _tail_text_file(log_file, max_lines=160)
             failure_hint = _jointlk_failure_hint(log_tail)
+            summary_file = output_dir / "summary.json"
+            best_pred_file = output_dir / "best_dev_predictions.jsonl"
+            expected_last_epoch = max(1, int(epochs))
+            epoch_completed = max_epoch_seen >= expected_last_epoch
+            artifact_completed = summary_file.exists() or best_pred_file.exists()
+            soft_success = False
+            if final_code != 0 and epoch_completed and artifact_completed:
+                # Some environments may still report non-zero exit even though training artifacts
+                # are written successfully. Prefer practical completion for downstream flow.
+                soft_success = True
+                failure_hint = "nonzero_exit_after_complete_training"
+                final_code = 0
+                logging.warning(
+                    "[jointlk-train] non-zero exit overridden to success because training artifacts exist and final epoch summary was observed. doc_id=%s file_name=%s summary_exists=%s pred_exists=%s",
+                    doc_id,
+                    file_name,
+                    summary_file.exists(),
+                    best_pred_file.exists(),
+                )
+            if failure_hint in {"unknown_error", "unclassified_runtime_error"}:
+                for result in reversed(attempt_results):
+                    hint = str(result.get("failure_hint") or "")
+                    if hint and hint not in {"unknown_error", "unclassified_runtime_error"}:
+                        failure_hint = hint
+                        break
             status_payload = {
                 "doc_id": doc_id,
                 "file_name": file_name,
                 "exit_code": int(final_code),
                 "failure_hint": failure_hint,
+                "attempt_results": attempt_results,
+                "max_epoch_seen": int(max_epoch_seen),
+                "soft_success": soft_success,
                 "finished_at": datetime.now().isoformat(),
                 "log_file": str(log_file),
             }
