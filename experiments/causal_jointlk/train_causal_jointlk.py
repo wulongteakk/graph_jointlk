@@ -122,7 +122,22 @@ def set_seed(seed: int) -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-
+def _to_json_safe(value: Any):
+    if isinstance(value, dict):
+        return {str(k): _to_json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_to_json_safe(v) for v in value]
+    if isinstance(value, set):
+        return [_to_json_safe(v) for v in sorted(list(value), key=lambda x: str(x))]
+    if isinstance(value, np.generic):
+        return value.item()
+    if torch.is_tensor(value):
+        if value.dim() == 0:
+            return value.item()
+        return value.detach().cpu().tolist()
+    return value
 
 def build_collate_fn(
     tokenizer,
@@ -505,7 +520,7 @@ def main() -> None:
             epoch_aux_losses.append(float(loss_dict["aux_loss"].detach().cpu()))
             epoch_cf_losses.append(float(loss_dict["cf_loss"].detach().cpu()))
 
-        dev_metrics, _ = evaluate(
+        dev_metrics, dev_rows = evaluate(
             model=model,
             data_loader=dev_loader,
             device=device,
@@ -575,9 +590,16 @@ def main() -> None:
             }
             torch.save(ckpt, output_dir / "best_model.pt")
             tokenizer.save_pretrained(output_dir / "tokenizer")
+            try:
+                with (output_dir / "best_dev_predictions.jsonl").open("w", encoding="utf-8") as pred_out:
+                    for row in dev_rows:
+                        pred_out.write(json.dumps(_to_json_safe(row), ensure_ascii=False) + "\n")
+            except Exception as e:
+                # 不让预测导出失败导致整次训练进程 exit_code != 0
+                print(f"[jointlk-train][warn] failed to write best_dev_predictions.jsonl: {e}")
 
         with (output_dir / "train_log.jsonl").open("a", encoding="utf-8") as fout:
-            fout.write(json.dumps(dev_metrics, ensure_ascii=False) + "\n")
+            fout.write(json.dumps(_to_json_safe(dev_metrics), ensure_ascii=False) + "\n")
 
     summary = {
         "best_joint_score": best_metric,
@@ -589,7 +611,10 @@ def main() -> None:
         "label_weight_map": label_weight_map,
         "pos_weight": pos_weight_value,
     }
-    (output_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output_dir / "summary.json").write_text(
+        json.dumps(_to_json_safe(summary), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":

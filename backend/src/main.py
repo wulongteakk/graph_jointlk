@@ -231,6 +231,10 @@ def maybe_run_auto_pseudo_label_pipeline(graph, *, file_name: str, doc_id: str, 
 def _auto_jointlk_train_enabled() -> bool:
     return _get_bool_env("AUTO_JOINTLK_TRAIN_AFTER_UPLOAD", True)
 
+def _auto_jointlk_show_progress_bar() -> bool:
+    # 默认关闭，避免刷屏；仅在显式配置时展示。
+    return _get_bool_env("AUTO_JOINTLK_TRAIN_SHOW_PROGRESS_BAR", False)
+
 def _build_jointlk_train_attempts(model_name: str, batch_size: int):
     """
     Build a conservative fallback plan to improve training success rate.
@@ -326,6 +330,8 @@ def _jointlk_failure_hint(log_tail: str) -> str:
         return "cuda_runtime_error"
     if "valueerror" in text:
         return "value_error"
+    if "not json serializable" in text:
+        return "json_serialize_error"
     return "unclassified_runtime_error"
 
 def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, doc_id: str):
@@ -395,6 +401,7 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
     batch_size = str(batch_size_int)
     lr = os.getenv("AUTO_JOINTLK_TRAIN_LR", "2e-5")
     attempt_plan = _build_jointlk_train_attempts(model_name=model_name, batch_size=batch_size_int)
+    show_progress_bar = _auto_jointlk_show_progress_bar()
 
     def _build_train_command(*, model_name: str, batch_size: int, freeze_lm: bool):
         command = [
@@ -461,19 +468,25 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                 if proc.stdout is not None:
                     for raw_line in proc.stdout:
                         fout.write(raw_line)
-                        if _should_echo_train_progress(raw_line):
-                            logging.info(
-                                "[jointlk-train][progress] doc_id=%s file_name=%s %s",
-                                doc_id,
-                                file_name,
-                                raw_line.rstrip(),
-                            )
+                        if show_progress_bar and _should_echo_train_progress(raw_line):
+                            progress = _extract_epoch_progress(raw_line)
+                            if progress is not None:
+                                total_epochs = max(1, int(epochs))
+                                epoch = min(int(progress["epoch"]), total_epochs)
+                                percent = int(round((epoch / total_epochs) * 100))
+                                bar = _format_progress_bar(percent, width=20)
+                                logging.info(
+                                    "[jointlk-train][progress-bar] doc_id=%s file_name=%s %s %s%% (epoch %s/%s) joint_score=%.4f edge_f1=%.4f",
+                                    doc_id,
+                                    file_name,
+                                    bar,
+                                    percent,
+                                    epoch,
+                                    total_epochs,
+                                    float(progress.get("joint_score", 0.0)),
+                                    float(progress.get("edge_f1", 0.0)),
+                                )
                     proc.stdout.close()
-                final_code = proc.wait()
-                fout.write(f"--- attempt {idx} finished with exit_code={final_code} ---\n")
-                fout.flush()
-                if final_code == 0:
-                    break
 
             fout.write(f"\n=== auto jointlk training finished with exit_code={final_code} ===\n")
             fout.flush()
@@ -501,6 +514,31 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                 final_code,
                 str(log_file),
             )
+            if final_code == 0:
+                try:
+                    trained_chain = build_causal_chain_from_trained_predictions(
+                        prediction_jsonl=output_dir / "best_dev_predictions.jsonl",
+                        file_name=file_name,
+                        doc_id=doc_id,
+                    )
+                    final_chain_row = trained_chain.get("final_chain") if trained_chain else None
+                    logging.info(
+                        "[JointLK][final-causal-chain] %s",
+                        json.dumps(
+                            {
+                                "file_name": file_name,
+                                "doc_id": doc_id,
+                                "score": final_chain_row.get("score") if final_chain_row else None,
+                                "chain_text": final_chain_row.get("chain_text") if final_chain_row else None,
+                                "length": final_chain_row.get("length") if final_chain_row else None,
+                                "source": "trained_model_predictions",
+                                "prediction_jsonl": trained_chain.get("prediction_jsonl") if trained_chain else None,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                except Exception:
+                    logging.exception("[jointlk-train] failed to build final chain from trained predictions for doc_id=%s", doc_id)
             if final_code != 0:
                 logging.error(
                     "[jointlk-train] failure_hint=%s doc_id=%s file_name=%s log_tail=\n%s",
@@ -561,6 +599,133 @@ def _should_echo_train_progress(line: str) -> bool:
         "[JointLK][train-epoch]",
     )
     return any(k in text for k in keys)
+
+def _extract_epoch_progress(line: str):
+    text = (line or "").strip()
+    if not text or "[JointLK][epoch-summary]" not in text:
+        return None
+    try:
+        payload_text = text.split("[JointLK][epoch-summary]", 1)[1].strip()
+        payload = json.loads(payload_text)
+    except Exception:
+        return None
+    epoch = int(payload.get("epoch") or 0)
+    if epoch <= 0:
+        return None
+    return {
+        "epoch": epoch,
+        "joint_score": float(payload.get("joint_score", 0.0) or 0.0),
+        "edge_f1": float(payload.get("edge_f1", 0.0) or 0.0),
+    }
+
+
+def _format_progress_bar(percent: int, width: int = 20) -> str:
+    p = max(0, min(100, int(percent)))
+    fill = int(round((p / 100.0) * width))
+    return "█" * fill + "░" * max(0, width - fill)
+
+
+def build_causal_chain_from_trained_predictions(*, prediction_jsonl: Path, file_name: str, doc_id: str):
+    if not prediction_jsonl.exists():
+        return {"ok": False, "reason": "missing_prediction_jsonl", "path": str(prediction_jsonl)}
+
+    min_causal_conf = float(os.getenv("AUTO_JOINTLK_CHAIN_MIN_CAUSAL_CONF", "0.55"))
+    top_k_edges = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_EDGES", "20"))
+    top_k_chains = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_CHAINS", "8"))
+    max_chain_depth = int(os.getenv("AUTO_JOINTLK_CHAIN_MAX_DEPTH", "4"))
+
+    rows = _read_jsonl_rows(str(prediction_jsonl))
+    causal_edges = []
+    for row in rows:
+        conf = float(row.get("support_prob", row.get("causal_prob", 0.0)) or 0.0)
+        if conf < min_causal_conf:
+            continue
+        edge = {
+            "doc_id": row.get("doc_id"),
+            "source_node_id": row.get("source_node_id"),
+            "source_text": row.get("source_text"),
+            "target_node_id": row.get("target_node_id"),
+            "target_text": row.get("target_text"),
+            "relation_type": row.get("pred_relation_name") or row.get("relation_type"),
+            "causal_conf": conf,
+            "enable_prob": float(row.get("enable_prob", 0.0) or 0.0),
+            "dir_prob": float(row.get("dir_prob", 0.0) or 0.0),
+            "temporal_prob": float(row.get("temporal_prob", 0.0) or 0.0),
+        }
+        edge["score"] = conf + 0.05 * edge["enable_prob"] + 0.03 * edge["temporal_prob"]
+        causal_edges.append(edge)
+    if not causal_edges:
+        return {"ok": False, "reason": "no_trained_causal_edges", "num_edges": 0, "num_chains": 0}
+
+    causal_edges.sort(key=lambda x: x["score"], reverse=True)
+    top_edges = causal_edges[:max(top_k_edges, 0)]
+    out_adj = defaultdict(list)
+    in_deg = defaultdict(int)
+    for e in top_edges:
+        s = str(e.get("source_node_id") or "")
+        t = str(e.get("target_node_id") or "")
+        if not s or not t or s == t:
+            continue
+        out_adj[s].append(e)
+        in_deg[t] += 1
+        in_deg.setdefault(s, 0)
+    roots = [nid for nid, deg in in_deg.items() if deg == 0] or list(out_adj.keys())
+
+    chains = []
+
+    def _dfs(node_id, path_edges, visited):
+        if len(path_edges) >= max_chain_depth:
+            chains.append(list(path_edges))
+            return
+        next_edges = out_adj.get(node_id, [])
+        if not next_edges:
+            if path_edges:
+                chains.append(list(path_edges))
+            return
+        for e in next_edges:
+            nxt = str(e.get("target_node_id") or "")
+            if not nxt or nxt in visited:
+                continue
+            path_edges.append(e)
+            visited.add(nxt)
+            _dfs(nxt, path_edges, visited)
+            visited.remove(nxt)
+            path_edges.pop()
+
+    for r in roots:
+        _dfs(r, [], {r})
+
+    chain_rows = []
+    for path in chains:
+        if not path:
+            continue
+        chain_score = sum(float(x.get("score", 0.0)) for x in path) / max(1, len(path))
+        chain_text = " -> ".join([str(path[0].get("source_text") or path[0].get("source_node_id") or "")] + [
+            str(x.get("target_text") or x.get("target_node_id") or "") for x in path
+        ])
+        chain_rows.append({"length": len(path), "score": round(chain_score, 4), "chain_text": chain_text, "edges": path})
+    chain_rows.sort(key=lambda x: (x["length"], x["score"]), reverse=True)
+    chain_rows = chain_rows[:max(top_k_chains, 0)]
+    final_chain = chain_rows[0] if chain_rows else None
+    _log_jointlk_stage(
+        "causal-chain-trained",
+        {
+            "file_name": file_name,
+            "doc_id": doc_id,
+            "num_causal_edges": len(causal_edges),
+            "num_chain_candidates": len(chain_rows),
+            "final_chain": final_chain,
+        },
+    )
+    return {
+        "ok": bool(final_chain),
+        "num_edges": len(causal_edges),
+        "num_chains": len(chain_rows),
+        "final_chain": final_chain,
+        "top_edges": top_edges,
+        "top_chains": chain_rows,
+        "prediction_jsonl": str(prediction_jsonl),
+    }
 
 
 def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: str, doc_id: str):
@@ -1200,61 +1365,11 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
                 logging.exception(f"[pseudo-label] failed for file={file_name}: {e}")
 
                 # merged_file_path have value only when file uploaded from local
-            try:
-                causal_chain_preview = build_causal_chain_preview_from_pseudo(
-                    pseudo_result=pseudo_result or {},
-                    file_name=file_name,
-                    doc_id=ctx.doc_id,
-                )
-                if causal_chain_preview and causal_chain_preview.get("ok"):
-                    _log_jointlk_stage(
-                        "causal-chain-exported",
-                        {
-                            "file_name": file_name,
-                            "doc_id": ctx.doc_id,
-                            "num_edges": causal_chain_preview.get("num_edges"),
-                            "num_chains": causal_chain_preview.get("num_chains"),
-                            "top_chain": (
-                                (causal_chain_preview.get("top_chains") or [{}])[0].get("chain_text")
-                                if causal_chain_preview.get("top_chains")
-                                else None
-                            ),
-                        },
-                    )
-                    top_chain_rows = causal_chain_preview.get("top_chains") or []
-                    final_chain_row = causal_chain_preview.get("final_chain") or (top_chain_rows[0] if top_chain_rows else None)
-                    _log_jointlk_stage(
-                        "causal-chain-preview",
-                        {
-                            "file_name": file_name,
-                            "doc_id": ctx.doc_id,
-                            "top_chain_count": len(top_chain_rows),
-                            "final_chain": {
-                                "score": final_chain_row.get("score") if final_chain_row else None,
-                                "chain_text": final_chain_row.get("chain_text") if final_chain_row else None,
-                                "length": final_chain_row.get("length") if final_chain_row else None,
-                            },
-                        },
-                    )
-                    logging.info(
-                        "[JointLK][final-causal-chain] %s",
-                        json.dumps(
-                            {
-                                "file_name": file_name,
-                                "doc_id": ctx.doc_id,
-                                "score": final_chain_row.get("score") if final_chain_row else None,
-                                "chain_text": final_chain_row.get("chain_text") if final_chain_row else None,
-                                "length": final_chain_row.get("length") if final_chain_row else None,
-                            },
-                            ensure_ascii=False,
-                        ),
-                    )
-            except Exception as e:
-                causal_chain_preview = {
-                    "ok": False,
-                    "error": str(e),
-                }
-                logging.exception(f"[jointlk-chain] failed to build preview for file={file_name}: {e}")
+
+            causal_chain_preview = {
+                "ok": False,
+                "reason": "disabled_pretrain_preview_use_trained_chain_after_training",
+            }
 
             try:
                 auto_train_result = maybe_trigger_auto_jointlk_training(
