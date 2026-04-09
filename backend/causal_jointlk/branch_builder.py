@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Dict, List, Sequence
+import re
+from typing import Any, Dict, List, Optional, Sequence
 
 from .schemas import CandidateBranch, CandidateChain, CausalEdge,CausalNode
 
@@ -22,6 +23,8 @@ class BranchBuilder:
         nodes: Sequence[CausalNode],
         edges: Sequence[CausalEdge],
         chains: Sequence[CandidateChain],
+        node_prior_map: Optional[Dict[str, Dict[str, Any]]] = None,
+        evidence_store: Any = None,
     ) -> List[CandidateBranch]:
         node_map = {n.node_id: n for n in nodes}
         graph_outgoing: Dict[str, List[CausalEdge]] = defaultdict(list)
@@ -106,6 +109,22 @@ class BranchBuilder:
                 "num_root_nodes": len(branch.root_nodes),
                 "num_consequence_nodes": len(branch.consequence_nodes),
             }
+            root_prior_rows = [node_prior_map.get(nid, {}) for nid in branch.root_nodes] if node_prior_map else []
+            branch.meta["root_temporal_rank"] = max(
+                [float(r.get("temporal_earliness", 0.0)) for r in root_prior_rows] or [0.0]
+            )
+            branch.meta["shared_downstream_count"] = sum(
+                float(r.get("shared_downstream_count", 0.0)) for r in root_prior_rows
+            )
+            branch.meta["first_cue_hits"] = sorted(
+                set(hit for r in root_prior_rows for hit in (r.get("first_cue_hits") or []))
+            )
+            branch.meta["temporal_violation_count"] = sum(
+                1 for e in branch.path_edges if float(e.p_temporal_before or 0.0) < 0.5
+            )
+            branch.meta["cycle_flag"] = self._has_cycle(branch.path_nodes, branch.path_edges)
+            branch.meta["downstream_enable_flag"] = self._has_downstream_enable_conflict(branch.path_edges)
+            branch.meta.update(self._extract_branch_severity(branch, nodes, evidence_store))
 
         branches = sorted(grouped.values(), key=lambda x: x.score, reverse=True)
         return branches
@@ -212,3 +231,80 @@ class BranchBuilder:
         if any(k in text for k in ["吊装", "起重", "塔吊"]):
             rows.append("lifting_injury")
         return rows
+
+    @staticmethod
+    def _has_cycle(path_nodes: Sequence[str], path_edges: Sequence[CausalEdge]) -> bool:
+        graph: Dict[str, List[str]] = defaultdict(list)
+        path_set = set(path_nodes)
+        for edge in path_edges:
+            if edge.source_id in path_set and edge.target_id in path_set:
+                graph[edge.source_id].append(edge.target_id)
+        visited = set()
+        visiting = set()
+
+        def dfs(node: str) -> bool:
+            if node in visiting:
+                return True
+            if node in visited:
+                return False
+            visiting.add(node)
+            for nxt in graph.get(node, []):
+                if dfs(nxt):
+                    return True
+            visiting.remove(node)
+            visited.add(node)
+            return False
+
+        return any(dfs(node) for node in path_nodes)
+
+    @staticmethod
+    def _has_downstream_enable_conflict(path_edges: Sequence[CausalEdge]) -> bool:
+        enable_edges = [e for e in path_edges if float(e.p_enable or 0.0) >= 0.5]
+        if not enable_edges:
+            return False
+        low_temporal = [e for e in enable_edges if float(e.p_temporal_before or 0.0) < 0.5]
+        return len(low_temporal) / max(len(enable_edges), 1) >= 0.5
+
+    def _extract_branch_severity(
+            self,
+            branch: CandidateBranch,
+            nodes: Sequence[CausalNode],
+            evidence_store: Any,
+    ) -> Dict[str, float]:
+        text_parts: List[str] = [e.evidence_text or "" for e in branch.path_edges]
+        node_map = {n.node_id: n for n in nodes}
+        for node_id in branch.path_nodes:
+            node = node_map.get(node_id)
+            if node is not None:
+                text_parts.append(node.text or "")
+        if evidence_store is not None:
+            for unit_id in branch.evidence_unit_ids:
+                if not unit_id:
+                    continue
+                unit = evidence_store.get_unit(unit_id)
+                if unit is not None:
+                    text_parts.append(getattr(unit, "content", "") or "")
+        text = " ".join(filter(None, text_parts))
+        death_count = self._extract_count(text, [r"死亡\s*(\d+)\s*人", r"(\d+)\s*人死亡"])
+        serious_count = self._extract_count(text, [r"重伤\s*(\d+)\s*人", r"(\d+)\s*人重伤"])
+        light_count = self._extract_count(text, [r"轻伤\s*(\d+)\s*人", r"(\d+)\s*人轻伤"])
+        energy_level = 1.0 if any(k in text for k in ["爆炸", "爆燃", "火灾", "坍塌"]) else 0.0
+        toxicity_level = 1.0 if any(k in text for k in ["中毒", "窒息", "有毒", "缺氧"]) else 0.0
+        return {
+            "death_count": death_count,
+            "serious_injury_count": serious_count,
+            "light_injury_count": light_count,
+            "energy_level": energy_level,
+            "toxicity_level": toxicity_level,
+        }
+
+    @staticmethod
+    def _extract_count(text: str, patterns: Sequence[str]) -> float:
+        for pat in patterns:
+            m = re.search(pat, text)
+            if m:
+                try:
+                    return float(m.group(1))
+                except Exception:
+                    continue
+        return 0.0

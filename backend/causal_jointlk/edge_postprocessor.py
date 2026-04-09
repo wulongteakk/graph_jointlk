@@ -44,11 +44,23 @@ class EdgePostProcessor:
         edge.evidence_text = best.get("content") or edge.evidence_text
         edge.supported = bool(best.get("supported"))
         edge.support_score = float(best.get("support_score") or 0.0)
-        edge.p_evidence = edge.support_score
+        edge.p_evidence = (
+                0.40 * float(best.get("support_score", 0.0))
+                + 0.20 * float(best.get("temporal_score", 0.0))
+                + 0.20 * float(best.get("direction_score", 0.0))
+                + 0.20 * float(best.get("first_induced_score", 0.0))
+        )
         edge.meta = dict(edge.meta or {})
         edge.meta["trigger_hits"] = best.get("trigger_hits") or []
         edge.meta["source_span"] = best.get("source_span")
         edge.meta["target_span"] = best.get("target_span")
+        edge.meta["evidence_trace"] = {
+            "support_score": float(best.get("support_score", 0.0)),
+            "temporal_score": float(best.get("temporal_score", 0.0)),
+            "direction_score": float(best.get("direction_score", 0.0)),
+            "first_induced_score": float(best.get("first_induced_score", 0.0)),
+            "severity_signals": best.get("severity_signals", {}),
+        }
         return edge
 
     def fuse_edge_score(self, edge: CausalEdge) -> CausalEdge:

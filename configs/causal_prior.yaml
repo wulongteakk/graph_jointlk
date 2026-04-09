@@ -150,6 +150,7 @@ relation_aliases:
     - inhibits
     - inhibited
 first_induced:
+  cue_words_zh: ["诱因", "隐患", "先是", "起初", "根本原因", "为后续提供条件"]
   canonical_map:
     SourceState: SourceState
     SourceEvent: SourceEvent
@@ -237,6 +238,14 @@ branch_decision:
   temporal_violation_penalty: 0.8
   cycle_penalty: 1.2
   downstream_enable_penalty: 0.6
+  feature_weights:
+    mean_edge_score: 0.38
+    mean_p_enable: 0.16
+    mean_p_temporal_before: 0.16
+    root_temporal_rank: 0.10
+    shared_downstream_count: 0.08
+    first_cue_count: 0.08
+    coverage_of_consequences: 0.04
 
 severity:
   death_weight: 5.0

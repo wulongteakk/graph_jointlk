@@ -524,29 +524,35 @@ def main() -> None:
         dev_metrics["pos_weight"] = pos_weight_value
         history.append(dev_metrics)
 
-        current_metric = dev_metrics.get("joint_score")
-        if current_metric is None:
-            current_metric = compute_joint_score(dev_metrics)
-            dev_metrics["joint_score"] = float(current_metric)
         current_metric = float(current_metric)
         current_threshold = float(dev_metrics.get("best_threshold", 0.5))
-        print("[JointLK][epoch-summary]", json.dumps(dev_metrics, ensure_ascii=False))
-        print("[JointLK][train-epoch]", json.dumps(tracer.log_train_epoch(dev_metrics, epoch=epoch), ensure_ascii=False))
-        tracer.log_train_epoch_console(dev_metrics, epoch=epoch)
-        tracer.log_stage_console(
-            "training-metrics",
-            {
-                "epoch": epoch,
-                "joint_score": float(dev_metrics.get("joint_score", 0.0)),
-                "edge_f1": float(dev_metrics.get("edge_f1", 0.0)),
-                "rel_micro_f1": float(dev_metrics.get("rel_micro_f1", 0.0)),
-
-
-                "rel_macro_f1": float(dev_metrics.get("rel_macro_f1", 0.0)),
-                "mrr": float((dev_metrics.get("ranking_by_doc", {}) or {}).get("mrr", dev_metrics.get("mrr", 0.0))),
-                "best_threshold": float(dev_metrics.get("best_threshold", 0.5)),
-            },
-        )
+        dashboard = {
+            "epoch": epoch,
+            "train_loss": float(dev_metrics.get("train_loss", 0.0)),
+            "train_causal_loss": float(dev_metrics.get("train_causal_loss", 0.0)),
+            "train_relation_loss": float(dev_metrics.get("train_relation_loss", 0.0)),
+            "train_aux_loss": float(dev_metrics.get("train_aux_loss", 0.0)),
+            "train_cf_loss": float(dev_metrics.get("train_cf_loss", 0.0)),
+            "edge_f1": float(dev_metrics.get("edge_f1", 0.0)),
+            "enable_f1": float(dev_metrics.get("enable_f1", 0.0)),
+            "dir_f1": float(dev_metrics.get("dir_f1", 0.0)),
+            "temp_f1": float(dev_metrics.get("temp_f1", 0.0)),
+            "src_first_f1": float(dev_metrics.get("src_first_f1", 0.0)),
+            "dst_first_f1": float(dev_metrics.get("dst_first_f1", 0.0)),
+            "rel_micro_f1": float(dev_metrics.get("rel_micro_f1", 0.0)),
+            "rel_macro_f1": float(dev_metrics.get("rel_macro_f1", 0.0)),
+            "mrr": float((dev_metrics.get("ranking_by_doc", {}) or {}).get("mrr", dev_metrics.get("mrr", 0.0))),
+            "hits@1": float((dev_metrics.get("ranking_by_doc", {}) or {}).get("hits@1", 0.0)),
+            "hits@3": float((dev_metrics.get("ranking_by_doc", {}) or {}).get("hits@3", 0.0)),
+            "hits@5": float((dev_metrics.get("ranking_by_doc", {}) or {}).get("hits@5", 0.0)),
+            "joint_score": float(dev_metrics.get("joint_score", 0.0)),
+            "best_threshold": float(dev_metrics.get("best_threshold", 0.5)),
+        }
+        print("[JointLK][epoch-summary]", json.dumps(dashboard, ensure_ascii=False))
+        print("[JointLK][train-epoch]",
+              json.dumps(tracer.log_train_epoch(dev_metrics, epoch=epoch), ensure_ascii=False))
+        tracer.log_train_epoch_console(dashboard, epoch=epoch)
+        tracer.log_stage_console("training-metrics", dashboard)
 
         if current_metric > best_metric:
             best_metric = current_metric

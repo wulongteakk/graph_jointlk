@@ -6,36 +6,43 @@ from .schemas import CandidateBranch, CandidateChain, CausalEdge, DecodedAcciden
 
 
 class ConsoleTracer:
+    @staticmethod
+    def _metric(metrics: Dict[str, Any], *keys: str, default: float = 0.0) -> float:
+        for key in keys:
+            if key in metrics and metrics[key] is not None:
+                try:
+                    return float(metrics[key])
+                except Exception:
+                    continue
+        return float(default)
+
     def log_stage(self, stage: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"stage": stage, "payload": payload}
-
-    def log_stage_console(self, stage: str, payload: Dict[str, Any]) -> None:
-        print(f"[JointLK][{stage}]", payload)
 
     def log_train_epoch(self, metrics: Dict[str, Any], epoch: int | None = None) -> Dict[str, Any]:
         ranking_by_doc = metrics.get("ranking_by_doc", {}) or {}
         payload = {
             "epoch": epoch,
-            "loss": float(metrics.get("loss", 0.0)),
-            "causal_loss": float(metrics.get("causal_loss", 0.0)),
-            "relation_loss": float(metrics.get("relation_loss", 0.0)),
-            "aux_loss": float(metrics.get("aux_loss", 0.0)),
-            "cf_loss": float(metrics.get("cf_loss", 0.0)),
-            "edge_f1": float(metrics.get("edge_f1", 0.0)),
-            "enable_f1": float(metrics.get("enable_f1", 0.0)),
-            "dir_f1": float(metrics.get("dir_f1", 0.0)),
-            "temp_f1": float(metrics.get("temp_f1", 0.0)),
-            "src_first_f1": float(metrics.get("src_first_f1", 0.0)),
-            "dst_first_f1": float(metrics.get("dst_first_f1", 0.0)),
-            "rel_micro_f1": float(metrics.get("rel_micro_f1", 0.0)),
-            "rel_macro_f1": float(metrics.get("rel_macro_f1", 0.0)),
+            "loss": self._metric(metrics, "train_loss", "loss"),
+            "causal_loss": self._metric(metrics, "train_causal_loss", "causal_loss"),
+            "relation_loss": self._metric(metrics, "train_relation_loss", "relation_loss"),
+            "aux_loss": self._metric(metrics, "train_aux_loss", "aux_loss"),
+            "cf_loss": self._metric(metrics, "train_cf_loss", "cf_loss"),
+            "edge_f1": self._metric(metrics, "edge_f1"),
+            "enable_f1": self._metric(metrics, "enable_f1"),
+            "dir_f1": self._metric(metrics, "dir_f1"),
+            "temp_f1": self._metric(metrics, "temp_f1"),
+            "src_first_f1": self._metric(metrics, "src_first_f1"),
+            "dst_first_f1": self._metric(metrics, "dst_first_f1"),
+            "rel_micro_f1": self._metric(metrics, "rel_micro_f1"),
+            "rel_macro_f1": self._metric(metrics, "rel_macro_f1"),
             "mrr": float(ranking_by_doc.get("mrr", metrics.get("mrr", 0.0))),
             "hits@1": float(ranking_by_doc.get("hits@1", metrics.get("hits@1", 0.0))),
             "hits@3": float(ranking_by_doc.get("hits@3", metrics.get("hits@3", 0.0))),
             "hits@5": float(ranking_by_doc.get("hits@5", metrics.get("hits@5", 0.0))),
             "ndcg@5": float(ranking_by_doc.get("ndcg@5", metrics.get("ndcg@5", 0.0))),
-            "joint_score": float(metrics.get("joint_score", 0.0)),
-            "best_threshold": float(metrics.get("best_threshold", 0.5)),
+            "joint_score": self._metric(metrics, "joint_score"),
+            "best_threshold": self._metric(metrics, "best_threshold", default=0.5),
         }
         return {"train_epoch": payload}
 
@@ -119,7 +126,11 @@ class ConsoleTracer:
         decision: Any,
         top_k: int = 5,
     ) -> Dict[str, Any]:
-        ranked = sorted(branches, key=lambda b: b.score, reverse=True)[:top_k]
+        ranked = sorted(
+            branches,
+            key=lambda b: (float(getattr(b, "p_branch_first", 0.0)), float(getattr(b, "score", 0.0))),
+            reverse=True,
+        )[:top_k]
         return {
             "branch_ranking": [
                 {

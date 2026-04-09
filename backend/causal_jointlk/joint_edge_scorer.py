@@ -79,6 +79,7 @@ class CausalJointLKEdgeScorer:
         edges: Sequence[CausalEdge],
         evidence_by_edge_id: Dict[str, List[Dict[str, Any]]],
         doc_title: Optional[str] = None,
+        node_prior_map: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> List[CausalEdge]:
         if not edges:
             return []
@@ -123,7 +124,10 @@ class CausalJointLKEdgeScorer:
                     "candidate_relation": edge_rel,
                     "node_texts": node_texts,
                     "node_layer_types": node_layers,
-                    "node_scores": [0.0] * len(node_texts),
+                    "node_scores": [
+                        float((node_prior_map or {}).get(nid, {}).get("p_node_first_prior", 0.0))
+                        for nid in node_ids
+                    ],
                     "edge_index": [
                         [node_id_to_idx[e.source_id] for e in valid_graph_edges],
                         [node_id_to_idx[e.target_id] for e in valid_graph_edges],
@@ -156,19 +160,28 @@ class CausalJointLKEdgeScorer:
         enable_probs = outputs["enable_prob"].detach().cpu().tolist()
         dir_probs = outputs["dir_prob"].detach().cpu().tolist()
         temporal_probs = outputs["temporal_prob"].detach().cpu().tolist()
-        node_first_probs = outputs["node_first_prob"].detach().cpu().tolist()
+        src_first_probs = outputs.get("src_first_prob", outputs["node_first_prob"]).detach().cpu().tolist()
+        dst_first_probs = outputs.get("dst_first_prob", outputs["node_first_prob"]).detach().cpu().tolist()
 
         out: List[CausalEdge] = []
-        for edge, p, pe, pd, pt, pn in zip(valid_edges, probs, enable_probs, dir_probs, temporal_probs,
-                                           node_first_probs):
+        for edge, p, pe, pd, pt, ps, pdst in zip(
+                valid_edges,
+                probs,
+                enable_probs,
+                dir_probs,
+                temporal_probs,
+                src_first_probs,
+                dst_first_probs,
+        ):
             p_evidence = float(edge.p_evidence or edge.support_score or 0.0)
+            first_term = 0.7 * float(ps) + 0.3 * float(pdst)
             fused_score = (
                     self.score_weights["w_causal"] * float(p)
                     + self.score_weights["w_enable"] * float(pe)
                     + self.score_weights["w_dir"] * float(pd)
                     + self.score_weights["w_temp"] * float(pt)
                     + self.score_weights["w_evidence"] * p_evidence
-                    + self.score_weights["w_first"] * float(pn)
+                    + self.score_weights["w_first"] * first_term
             )
             edge.score = fused_score
             edge.support_score = float(p)
@@ -177,7 +190,7 @@ class CausalJointLKEdgeScorer:
             edge.p_enable = float(pe)
             edge.p_dir = float(pd)
             edge.p_temporal_before = float(pt)
-            edge.p_node_first = float(pn)
+            edge.p_node_first = float(ps)
             edge.p_evidence = p_evidence
             edge.meta = dict(edge.meta or {})
             edge.meta["jointlk_trace"] = {
@@ -185,6 +198,8 @@ class CausalJointLKEdgeScorer:
                 "p_enable": edge.p_enable,
                 "p_dir": edge.p_dir,
                 "p_temporal_before": edge.p_temporal_before,
+                "src_first_prob": float(ps),
+                "dst_first_prob": float(pdst),
                 "p_node_first": edge.p_node_first,
                 "p_evidence": edge.p_evidence,
                 "score_weights": self.score_weights,
@@ -192,9 +207,9 @@ class CausalJointLKEdgeScorer:
             }
             source_node = node_map.get(edge.source_id)
             if source_node is not None:
-                source_node.p_node_first = max(float(source_node.p_node_first or 0.0), float(edge.p_node_first or 0.0))
+                source_node.p_node_first = max(float(source_node.p_node_first or 0.0), float(ps))
             target_node = node_map.get(edge.target_id)
             if target_node is not None:
-                target_node.p_node_first = max(float(target_node.p_node_first or 0.0), float(edge.p_node_first or 0.0))
+                target_node.p_node_first = max(float(target_node.p_node_first or 0.0), float(pdst))
             out.append(edge)
         return out

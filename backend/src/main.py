@@ -76,12 +76,18 @@ def _resolve_runtime_path(path_value: str, repo_root: Path | None = None) -> Pat
         Path(raw.replace("/", "\\")),
     ]
     if repo_root is not None:
+        repo_root = Path(repo_root).resolve()
         candidates.extend([repo_root / c for c in candidates if not c.is_absolute()])
 
     for c in candidates:
         if c.exists():
-            return c
-    return Path(raw.replace("\\", os.sep).replace("/", os.sep))
+            return c.resolve()
+
+    fallback = Path(raw.replace("\\", os.sep).replace("/", os.sep))
+    if not fallback.is_absolute() and repo_root is not None:
+        return (repo_root / fallback).resolve()
+    return fallback.resolve() if fallback.is_absolute() else fallback
+
 def _sanitize_fs_part(value: str) -> str:
     """
     Local safe filename sanitizer.

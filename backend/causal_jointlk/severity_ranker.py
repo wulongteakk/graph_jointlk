@@ -64,7 +64,15 @@ class SeverityRanker:
                 + self.toxicity_weight * toxicity
             )
             ranked.append(branch)
-        ranked = sorted(ranked, key=lambda b: (b.severity_score, b.score), reverse=True)
+        ranked = sorted(
+            ranked,
+            key=lambda b: (
+                float(b.severity_score or 0.0),
+                float(b.p_branch_first or 0.0),
+                float(b.score or 0.0),
+            ),
+            reverse=True,
+        )
         for branch in ranked:
             trace_rows.append(
                 {
@@ -75,6 +83,8 @@ class SeverityRanker:
                     "light_injury_count": float(branch.meta.get("light_injury_count", 0.0) or 0.0),
                     "energy_level": float(branch.meta.get("energy_level", 0.0) or 0.0),
                     "toxicity_level": float(branch.meta.get("toxicity_level", 0.0) or 0.0),
+                    "tie_break_p_branch_first": float(branch.p_branch_first or 0.0),
+                    "tie_break_branch_score": float(branch.score or 0.0),
                 }
             )
         severity_trace = SeverityDecisionTrace(

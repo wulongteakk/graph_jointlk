@@ -22,6 +22,9 @@ from .pseudo_labeler import (
 from .runtime_trace import RuntimeTracer
 from src.evidence_store.sqlite_store import EvidenceStore  # type: ignore
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
 
 def sha1_text(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
@@ -396,6 +399,17 @@ def sanitize_fs_part(text: Optional[str]) -> str:
     s = s.replace(" ", "_")
     return s[:160]
 
+def resolve_project_path(path_value: Optional[str], *, base_dir: Optional[Path] = None) -> Path:
+    raw = str(path_value or "").strip()
+    if not raw:
+        base = (base_dir or REPO_ROOT).resolve()
+        return base
+    p = Path(raw)
+    if p.is_absolute():
+        return p
+    base = (base_dir or REPO_ROOT).resolve()
+    return (base / p).resolve()
+
 
 def normalize_entity_surface(text: Optional[str]) -> str:
     raw = str(text or "").strip().lower()
@@ -681,11 +695,11 @@ def export_pseudo_label_package(
         },
         "review_candidate_count": len(review_candidates),
         "paths": {
-            "candidate_edge_table_jsonl": str(edge_table_jsonl),
-            "candidate_node_prior_table_jsonl": str(node_prior_jsonl),
-            "counterfactual_pairs_jsonl": str(cf_jsonl),
-            "jointlk_multitask_train_jsonl": str(train_jsonl),
-            "manual_review_candidates_csv": str(review_csv),
+            "candidate_edge_table_jsonl": str(edge_table_jsonl.resolve()),
+            "candidate_node_prior_table_jsonl": str(node_prior_jsonl.resolve()),
+            "counterfactual_pairs_jsonl": str(cf_jsonl.resolve()),
+            "jointlk_multitask_train_jsonl": str(train_jsonl.resolve()),
+            "manual_review_candidates_csv": str(review_csv.resolve()),
         },
     }
     if manifest_extra:
@@ -858,7 +872,9 @@ def run_pseudo_label_pipeline_for_doc(
     if label_rows:
         store.upsert_pseudo_edge_labels(label_rows)
 
-    out_dir = Path(cfg.export_root) / sanitize_fs_part(doc_id or file_name)
+    export_root_dir = resolve_project_path(cfg.export_root, base_dir=REPO_ROOT)
+    out_dir = export_root_dir / sanitize_fs_part(doc_id or file_name)
+
     manifest = export_pseudo_label_package(
         out_dir,
         label_rows,

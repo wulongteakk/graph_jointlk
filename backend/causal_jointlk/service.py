@@ -43,6 +43,7 @@ class CausalJointLKService:
 
         self.branch_builder = BranchBuilder()
         self.branch_decoder = BranchRuleDecoder(
+            prior=self.prior,
             gap_threshold=float(branch_cfg.get("gap_threshold", 0.15)),
             temporal_violation_penalty=float(branch_cfg.get("temporal_violation_penalty", 0.8)),
             cycle_penalty=float(branch_cfg.get("cycle_penalty", 1.2)),
@@ -140,6 +141,8 @@ class CausalJointLKService:
         nodes: List[CausalNode] = subgraph["nodes"]
         edges: List[CausalEdge] = self.accessor.hydrate_edge_evidence(self.evidence_store, subgraph["edges"])
         evidence_by_edge_id = self._build_evidence_map(edges)
+        node_prior_rows: List[Dict[str, Any]] = []
+        node_prior_map: Dict[str, Dict[str, Any]] = {}
 
         if mode.startswith("jointlk") and self.neural_scorer is not None:
             scored_edges = self.neural_scorer.score(
@@ -148,11 +151,24 @@ class CausalJointLKService:
                 edges=edges,
                 evidence_by_edge_id=evidence_by_edge_id,
                 doc_title=doc_id,
+                node_prior_map=None,
+            )
+            node_prior_rows = self.node_prior_builder.build(nodes, scored_edges)
+            node_prior_map = {row.get("node_id"): row for row in node_prior_rows if row.get("node_id")}
+            scored_edges = self.neural_scorer.score(
+                query=query or target_text,
+                nodes=nodes,
+                edges=scored_edges,
+                evidence_by_edge_id=evidence_by_edge_id,
+                doc_title=doc_id,
+                node_prior_map=node_prior_map,
             )
             if "+gate" in mode:
                 scored_edges = self.postprocessor.apply(scored_edges, evidence_by_edge_id)
         else:
             scored_edges = self.baseline.score_edges(edges, evidence_by_edge_id) if mode != "baseline" else list(edges)
+            node_prior_rows = self.node_prior_builder.build(nodes, scored_edges)
+            node_prior_map = {row.get("node_id"): row for row in node_prior_rows if row.get("node_id")}
 
         beam_seeds = self._find_root_like_seeds(nodes, scored_edges)
         chains = self.chain_builder.build(
@@ -162,6 +178,7 @@ class CausalJointLKService:
             top_k=top_k,
             max_hops=k_hop + 2,
         )
+
         self.tracer.log_stage_console(
             "causal-chain-summary",
             {
@@ -169,11 +186,36 @@ class CausalJointLKService:
                 "top_chain_ids": [c.chain_id for c in sorted(chains, key=lambda x: x.score, reverse=True)[:min(3, len(chains))]],
             },
         )
-        node_prior_rows = self.node_prior_builder.build(nodes, scored_edges)
-        branches = self.branch_builder.build(nodes, scored_edges, chains)
-        decision = self.branch_decoder.decide(branches)
+        self.tracer.log_stage_console(
+            "causal-chain-candidates",
+            {
+                "chains": [
+                    {
+                        "chain_id": c.chain_id,
+                        "score": float(c.score),
+                        "nodes": list(c.nodes),
+                        "edge_ids": [e.edge_id for e in c.edges],
+                    }
+                    for c in sorted(chains, key=lambda x: x.score, reverse=True)[: min(top_k, len(chains))]
+                ]
+            },
+        )
+
+        enable_branch = mode.endswith("+branch") or mode in {"jointlk", "jointlk+gate", "jointlk+gate+branch", "baseline+gate+branch"}
+        if enable_branch:
+            branches = self.branch_builder.build(
+                nodes=nodes,
+                edges=scored_edges,
+                chains=chains,
+                node_prior_map=node_prior_map,
+                evidence_store=self.evidence_store,
+            )
+            decision = self.branch_decoder.decide(branches)
+        else:
+            branches = []
+            decision = None
         severity_trace: Dict[str, Any] = {"triggered": False, "reason": "not_triggered", "ranking": []}
-        if decision.needs_severity_fallback:
+        if decision is not None and decision.needs_severity_fallback:
             branches, severity_obj = self.severity_ranker.rerank_with_trace(
                 branches,
                 triggered=True,
@@ -183,14 +225,14 @@ class CausalJointLKService:
             decision = self.branch_decoder.decide(branches)
             decision.trace["severity_fallback"] = severity_trace
 
-        selected = next((b for b in branches if b.branch_id == decision.selected_branch_id), None)
+        selected = next((b for b in branches if decision and b.branch_id == decision.selected_branch_id), None)
         self.tracer.log_stage_console(
             "induced-branch-decision",
             {
-                "selected_branch_id": decision.selected_branch_id,
-                "decision_gap": decision.decision_gap,
-                "needs_severity_fallback": decision.needs_severity_fallback,
-                "reason": decision.reason,
+                "selected_branch_id": decision.selected_branch_id if decision else None,
+                "decision_gap": decision.decision_gap if decision else 0.0,
+                "needs_severity_fallback": decision.needs_severity_fallback if decision else False,
+                "reason": decision.reason if decision else "branch_disabled",
             },
         )
 

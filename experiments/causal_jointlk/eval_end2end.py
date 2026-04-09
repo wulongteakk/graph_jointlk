@@ -162,6 +162,17 @@ def main() -> None:
             for row in rows:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    print("[JointLK][end2end-summary]", json.dumps(
+        {
+            "num_docs": len(records),
+            "branch_first_acc": metrics.get("branch_first_acc", 0.0),
+            "severity_trigger_rate": metrics.get("severity_fallback_trigger_rate", 0.0),
+            "basic_code_acc": metrics.get("basic_type_acc", 0.0),
+            "injury_code_acc": metrics.get("injury_code_acc", 0.0),
+            "industry_code_acc": metrics.get("industry_code_acc", 0.0),
+        },
+        ensure_ascii=False,
+    ))
     print(json.dumps(metrics, ensure_ascii=False, indent=2))
 
 

@@ -3,21 +3,26 @@ from __future__ import annotations
 import math
 from typing import Sequence,Any,Dict
 
+from .prior import CausalPrior
 from .schemas import BranchDecision, CandidateBranch
 
 
 class BranchRuleDecoder:
     def __init__(
-        self,
-        gap_threshold: float = 0.15,
-        temporal_violation_penalty: float = 0.8,
-        cycle_penalty: float = 1.2,
-        downstream_enable_penalty: float = 0.6,
+            self,
+            prior: CausalPrior | None = None,
+            gap_threshold: float = 0.15,
+            temporal_violation_penalty: float = 0.8,
+            cycle_penalty: float = 1.2,
+            downstream_enable_penalty: float = 0.6,
     ):
-        self.gap_threshold = float(gap_threshold)
-        self.temporal_violation_penalty = float(temporal_violation_penalty)
-        self.cycle_penalty = float(cycle_penalty)
-        self.downstream_enable_penalty = float(downstream_enable_penalty)
+        cfg = {}
+        if prior is not None:
+            cfg = (prior.config or {}).get("branch_decision", {}) or {}
+        self.gap_threshold = float(cfg.get("gap_threshold", gap_threshold))
+        self.temporal_violation_penalty = float(cfg.get("temporal_violation_penalty", temporal_violation_penalty))
+        self.cycle_penalty = float(cfg.get("cycle_penalty", cycle_penalty))
+        self.downstream_enable_penalty = float(cfg.get("downstream_enable_penalty", downstream_enable_penalty))
         self.feature_weights: Dict[str, float] = {
             "mean_edge_score": 0.38,
             "mean_p_enable": 0.16,
@@ -26,6 +31,7 @@ class BranchRuleDecoder:
             "shared_downstream_count": 0.08,
             "first_cue_count": 0.08,
             "coverage_of_consequences": 0.04,
+            **(cfg.get("feature_weights", {}) or {}),
         }
 
     def decide(self, branches: Sequence[CandidateBranch]) -> BranchDecision:
@@ -82,9 +88,9 @@ class BranchRuleDecoder:
         mean_edge_score = float(branch.score or 0.0)
         avg_enable = self._avg_prob(branch, "p_enable")
         avg_temporal = self._avg_prob(branch, "p_temporal_before")
-        first_cue_count = float(len(branch.meta.get("first_cue_hits") or []))
-        shared_downstream = float(branch.meta.get("shared_downstream_count", 0.0) or 0.0)
-        root_temporal_rank = float(branch.meta.get("root_temporal_rank", 0.0) or 0.0)
+        first_cue_count = min(1.0, float(len(branch.meta.get("first_cue_hits") or [])) / 3.0)
+        shared_downstream = min(1.0, float(branch.meta.get("shared_downstream_count", 0.0) or 0.0) / 5.0)
+        root_temporal_rank = min(1.0, float(branch.meta.get("root_temporal_rank", 0.0) or 0.0))
         consequence_nodes = len(branch.consequence_nodes or [])
         path_nodes = max(len(branch.path_nodes or []), 1)
         coverage = min(1.0, consequence_nodes / path_nodes)
@@ -95,7 +101,7 @@ class BranchRuleDecoder:
             "mean_p_temporal_before": avg_temporal,
             "root_temporal_rank": root_temporal_rank,
             "shared_downstream_count": shared_downstream,
-            "first_cue_count": min(first_cue_count, 3.0),
+            "first_cue_count": first_cue_count,
             "coverage_of_consequences": coverage,
         }
         contributions = {
