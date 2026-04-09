@@ -4,21 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="一条龙控制台展示12.0">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="全局组链1.0">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/branch_builder.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/branch_builder.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/branch_rule_decoder.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/branch_rule_decoder.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/edge_postprocessor.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/edge_postprocessor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/evidence_gate.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/evidence_gate.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/joint_edge_scorer.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/joint_edge_scorer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_pipeline.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/runtime_trace.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/runtime_trace.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/severity_ranker.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/severity_ranker.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/configs/causal_prior.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/configs/causal_prior.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/experiments/causal_jointlk/eval_end2end.py" beforeDir="false" afterPath="$PROJECT_DIR$/experiments/causal_jointlk/eval_end2end.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/experiments/causal_jointlk/train_causal_jointlk.py" beforeDir="false" afterPath="$PROJECT_DIR$/experiments/causal_jointlk/train_causal_jointlk.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -267,14 +257,6 @@
       <workItem from="1753704928935" duration="309000" />
       <workItem from="1753705248627" duration="3199000" />
       <workItem from="1755439688727" duration="17000" />
-    </task>
-    <task id="LOCAL-00011" summary="受控分类prompt">
-      <option name="closed" value="true" />
-      <created>1772417457367</created>
-      <option name="number" value="00011" />
-      <option name="presentableId" value="LOCAL-00011" />
-      <option name="project" value="LOCAL" />
-      <updated>1772417457367</updated>
     </task>
     <task id="LOCAL-00012" summary="提取因果链">
       <option name="closed" value="true" />
@@ -660,7 +642,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775697777985</updated>
     </task>
-    <option name="localTasksCounter" value="60" />
+    <task id="LOCAL-00060" summary="全局组链1.0">
+      <option name="closed" value="true" />
+      <created>1775708539879</created>
+      <option name="number" value="00060" />
+      <option name="presentableId" value="LOCAL-00060" />
+      <option name="project" value="LOCAL" />
+      <updated>1775708539879</updated>
+    </task>
+    <option name="localTasksCounter" value="61" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -678,7 +668,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="jointlk输入修正7.0" />
     <MESSAGE value="五头jointlk+反事实校准1.0" />
     <MESSAGE value="先发诱导裁决修正1.0" />
     <MESSAGE value="五头jointlk更新+反事实校准2.0" />
@@ -703,7 +692,8 @@
     <MESSAGE value="一条龙控制台展示10.0" />
     <MESSAGE value="一条龙控制台展示11.0" />
     <MESSAGE value="一条龙控制台展示12.0" />
-    <option name="LAST_COMMIT_MESSAGE" value="一条龙控制台展示12.0" />
+    <MESSAGE value="全局组链1.0" />
+    <option name="LAST_COMMIT_MESSAGE" value="全局组链1.0" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

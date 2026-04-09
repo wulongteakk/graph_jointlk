@@ -437,6 +437,7 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                 env = os.environ.copy()
                 if bool(attempt.get("force_cpu")):
                     env["CUDA_VISIBLE_DEVICES"] = ""
+                env.setdefault("PYTHONIOENCODING", "utf-8")
 
                 fout.write(
                     f"\n--- attempt {idx}/{len(attempt_plan)} "
@@ -449,11 +450,25 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                 proc = subprocess.Popen(
                     attempt_cmd,
                     cwd=str(repo_root),
-                    stdout=fout,
+                    stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
                     env=env,
                 )
+                if proc.stdout is not None:
+                    for raw_line in proc.stdout:
+                        fout.write(raw_line)
+                        if _should_echo_train_progress(raw_line):
+                            logging.info(
+                                "[jointlk-train][progress] doc_id=%s file_name=%s %s",
+                                doc_id,
+                                file_name,
+                                raw_line.rstrip(),
+                            )
+                    proc.stdout.close()
                 final_code = proc.wait()
                 fout.write(f"--- attempt {idx} finished with exit_code={final_code} ---\n")
                 fout.flush()
@@ -534,6 +549,18 @@ def _read_jsonl_rows(path: str, max_rows: int = 20000):
             except Exception:
                 continue
     return rows
+
+def _should_echo_train_progress(line: str) -> bool:
+    text = (line or "").strip()
+    if not text:
+        return False
+    keys = (
+        "[JointLK][epoch-summary]",
+        "[JointLK][epoch-dashboard]",
+        "[JointLK][training-metrics]",
+        "[JointLK][train-epoch]",
+    )
+    return any(k in text for k in keys)
 
 
 def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: str, doc_id: str):
@@ -664,6 +691,13 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
         )
     chain_rows.sort(key=lambda x: (x["length"], x["score"]), reverse=True)
     chain_rows = chain_rows[:max(top_k_chains, 0)]
+    final_chain = None
+    if chain_rows:
+        final_chain = sorted(
+            chain_rows,
+            key=lambda x: (float(x.get("score", 0.0)), int(x.get("length", 0))),
+            reverse=True,
+        )[0]
 
     _log_jointlk_stage(
         "causal-chain-preview",
@@ -673,13 +707,14 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
             "num_causal_edges": len(causal_edges),
             "num_chain_candidates": len(chain_rows),
             "min_causal_conf": min_causal_conf,
-            "top_chain": (chain_rows[0]["chain_text"] if chain_rows else None),
+            "top_chain": (final_chain["chain_text"] if final_chain else None),
         },
     )
     return {
         "ok": True,
         "num_edges": len(causal_edges),
         "num_chains": len(chain_rows),
+        "final_chain": final_chain,
         "min_causal_conf": min_causal_conf,
         "top_edges": top_edges,
         "top_chains": chain_rows,
@@ -1187,21 +1222,32 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
                         },
                     )
                     top_chain_rows = causal_chain_preview.get("top_chains") or []
+                    final_chain_row = causal_chain_preview.get("final_chain") or (top_chain_rows[0] if top_chain_rows else None)
                     _log_jointlk_stage(
                         "causal-chain-preview",
                         {
                             "file_name": file_name,
                             "doc_id": ctx.doc_id,
                             "top_chain_count": len(top_chain_rows),
-                            "top_chain_texts": [
-                                {
-                                    "rank": idx + 1,
-                                    "score": row.get("score"),
-                                    "chain_text": row.get("chain_text"),
-                                }
-                                for idx, row in enumerate(top_chain_rows[:5])
-                            ],
+                            "final_chain": {
+                                "score": final_chain_row.get("score") if final_chain_row else None,
+                                "chain_text": final_chain_row.get("chain_text") if final_chain_row else None,
+                                "length": final_chain_row.get("length") if final_chain_row else None,
+                            },
                         },
+                    )
+                    logging.info(
+                        "[JointLK][final-causal-chain] %s",
+                        json.dumps(
+                            {
+                                "file_name": file_name,
+                                "doc_id": ctx.doc_id,
+                                "score": final_chain_row.get("score") if final_chain_row else None,
+                                "chain_text": final_chain_row.get("chain_text") if final_chain_row else None,
+                                "length": final_chain_row.get("length") if final_chain_row else None,
+                            },
+                            ensure_ascii=False,
+                        ),
                     )
             except Exception as e:
                 causal_chain_preview = {

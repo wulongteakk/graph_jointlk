@@ -524,7 +524,14 @@ def main() -> None:
         dev_metrics["pos_weight"] = pos_weight_value
         history.append(dev_metrics)
 
-        current_metric = float(current_metric)
+        current_metric_raw = dev_metrics.get("joint_score")
+        if current_metric_raw is None:
+            current_metric_raw = compute_joint_score(dev_metrics)
+        try:
+            current_metric = float(current_metric_raw)
+        except Exception:
+            current_metric = 0.0
+        dev_metrics["joint_score"] = current_metric
         current_threshold = float(dev_metrics.get("best_threshold", 0.5))
         dashboard = {
             "epoch": epoch,
@@ -549,8 +556,7 @@ def main() -> None:
             "best_threshold": float(dev_metrics.get("best_threshold", 0.5)),
         }
         print("[JointLK][epoch-summary]", json.dumps(dashboard, ensure_ascii=False))
-        print("[JointLK][train-epoch]",
-              json.dumps(tracer.log_train_epoch(dev_metrics, epoch=epoch), ensure_ascii=False))
+        print("[JointLK][train-epoch]", json.dumps(tracer.log_train_epoch(dev_metrics, epoch=epoch), ensure_ascii=False))
         tracer.log_train_epoch_console(dashboard, epoch=epoch)
         tracer.log_stage_console("training-metrics", dashboard)
 

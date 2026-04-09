@@ -17,7 +17,39 @@ class ConsoleTracer:
         return float(default)
 
     def log_stage(self, stage: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
         return {"stage": stage, "payload": payload}
+
+    def log_stage_console(self, stage: str, payload: Dict[str, Any]) -> None:
+        if not self.enabled:
+            return
+        print(f"[JointLK][{stage}]", payload)
+
+    def log_edge_scores(self, edges: Sequence[CausalEdge], top_k: int = 10) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        return ConsoleTracer.log_edge_scores(self, edges, top_k=top_k)
+
+    def log_beam_chains(self, chains: Sequence[CandidateChain], top_k: int = 5) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        return ConsoleTracer.log_beam_chains(self, chains, top_k=top_k)
+
+    def log_branch_decision(self, branches: Sequence[CandidateBranch], decision: Any, top_k: int = 5) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        return ConsoleTracer.log_branch_decision(self, branches, decision, top_k=top_k)
+
+    def log_severity_fallback(self, severity_trace: Dict[str, Any], top_k: int = 5) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        return ConsoleTracer.log_severity_fallback(self, severity_trace, top_k=top_k)
+
+    def log_train_epoch(self, metrics: Dict[str, Any], epoch: int | None = None) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        return ConsoleTracer.log_train_epoch(self, metrics=metrics, epoch=epoch)
 
     def log_train_epoch(self, metrics: Dict[str, Any], epoch: int | None = None) -> Dict[str, Any]:
         ranking_by_doc = metrics.get("ranking_by_doc", {}) or {}
