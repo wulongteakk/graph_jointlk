@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import random
+import re
 import sys
 
 from pathlib import Path
