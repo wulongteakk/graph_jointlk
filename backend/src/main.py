@@ -334,6 +334,26 @@ def _jointlk_failure_hint(log_tail: str) -> str:
         return "json_serialize_error"
     return "unclassified_runtime_error"
 
+
+def _summarize_causal_labels(jsonl_path: Path, max_rows: int = 50000) -> dict:
+    rows = _read_jsonl_rows(str(jsonl_path), max_rows=max_rows)
+    pos = 0
+    neg = 0
+    abstain = 0
+    for row in rows:
+        label = row.get("causal_labels", row.get("silver_edge_causal", row.get("label", -1)))
+        try:
+            label_int = int(label)
+        except Exception:
+            label_int = -1
+        if label_int == 1:
+            pos += 1
+        elif label_int == 0:
+            neg += 1
+        else:
+            abstain += 1
+    return {"rows": len(rows), "positive": pos, "negative": neg, "abstain": abstain}
+
 def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, doc_id: str):
     """
     Trigger causal JointLK training automatically after pseudo labels are generated.
@@ -374,13 +394,22 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
             "resolved_train_jsonl": str(train_jsonl_path),
         }
 
+    train_label_stats = _summarize_causal_labels(train_jsonl_path)
+    if train_label_stats.get("positive", 0) <= 0:
+        logging.warning(
+            "[jointlk-train] no positive causal labels found in train_jsonl; model may converge to all-negative predictions. stats=%s path=%s",
+            train_label_stats,
+            str(train_jsonl_path),
+        )
+
     train_script = repo_root / "experiments" / "causal_jointlk" / "train_causal_jointlk.py"
     if not train_script.exists():
         logging.warning("[jointlk-train] script not found: %s", train_script)
         return {"enabled": True, "started": False, "reason": "missing_train_script"}
 
     output_root = os.getenv("AUTO_JOINTLK_TRAIN_OUTPUT_ROOT", "./outputs/auto_jointlk_training")
-    output_dir = Path(output_root) / _sanitize_fs_part(doc_id or file_name)
+    output_root_path = _resolve_runtime_path(output_root, repo_root=repo_root)
+    output_dir = output_root_path / _sanitize_fs_part(doc_id or file_name)
     output_dir.mkdir(parents=True, exist_ok=True)
     log_file = output_dir / "train.log"
 
@@ -593,6 +622,13 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                                 "length": final_chain_row.get("length") if final_chain_row else None,
                                 "source": "trained_model_predictions",
                                 "prediction_jsonl": trained_chain.get("prediction_jsonl") if trained_chain else None,
+                                "ok": bool(trained_chain.get("ok")) if trained_chain else False,
+                                "reason": trained_chain.get("reason") if trained_chain else "missing_trained_chain_payload",
+                                "num_edges": int(trained_chain.get("num_edges", 0)) if trained_chain else 0,
+                                "num_chains": int(trained_chain.get("num_chains", 0)) if trained_chain else 0,
+                                "row_count": int(trained_chain.get("row_count", 0)) if trained_chain else 0,
+                                "max_support_prob": float(trained_chain.get("max_support_prob", 0.0)) if trained_chain else 0.0,
+                                "min_causal_conf": float(trained_chain.get("min_causal_conf", 0.0)) if trained_chain else 0.0,
                             },
                             ensure_ascii=False,
                         ),
@@ -624,6 +660,8 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
         "started": True,
         "train_jsonl": str(train_jsonl_path),
         "dev_jsonl": str(dev_jsonl_path),
+        "train_label_stats": train_label_stats,
+        "output_root_resolved": str(output_root_path),
         "output_dir": str(output_dir),
         "log_file": str(log_file),
         "epochs": int(epochs),
@@ -686,8 +724,16 @@ def _format_progress_bar(percent: int, width: int = 20) -> str:
 
 
 def build_causal_chain_from_trained_predictions(*, prediction_jsonl: Path, file_name: str, doc_id: str):
+    prediction_jsonl_str = str(prediction_jsonl)
     if not prediction_jsonl.exists():
-        return {"ok": False, "reason": "missing_prediction_jsonl", "path": str(prediction_jsonl)}
+        return {
+            "ok": False,
+            "reason": "missing_prediction_jsonl",
+            "path": prediction_jsonl_str,
+            "prediction_jsonl": prediction_jsonl_str,
+            "num_edges": 0,
+            "num_chains": 0,
+        }
 
     min_causal_conf = float(os.getenv("AUTO_JOINTLK_CHAIN_MIN_CAUSAL_CONF", "0.55"))
     top_k_edges = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_EDGES", "20"))
@@ -696,8 +742,11 @@ def build_causal_chain_from_trained_predictions(*, prediction_jsonl: Path, file_
 
     rows = _read_jsonl_rows(str(prediction_jsonl))
     causal_edges = []
+    max_support_prob = 0.0
     for row in rows:
         conf = float(row.get("support_prob", row.get("causal_prob", 0.0)) or 0.0)
+        if conf > max_support_prob:
+            max_support_prob = conf
         if conf < min_causal_conf:
             continue
         edge = {
@@ -715,7 +764,16 @@ def build_causal_chain_from_trained_predictions(*, prediction_jsonl: Path, file_
         edge["score"] = conf + 0.05 * edge["enable_prob"] + 0.03 * edge["temporal_prob"]
         causal_edges.append(edge)
     if not causal_edges:
-        return {"ok": False, "reason": "no_trained_causal_edges", "num_edges": 0, "num_chains": 0}
+        return {
+            "ok": False,
+            "reason": "no_trained_causal_edges",
+            "min_causal_conf": min_causal_conf,
+            "row_count": len(rows),
+            "max_support_prob": round(max_support_prob, 6),
+            "num_edges": 0,
+            "num_chains": 0,
+            "prediction_jsonl": prediction_jsonl_str,
+        }
 
     causal_edges.sort(key=lambda x: x["score"], reverse=True)
     top_edges = causal_edges[:max(top_k_edges, 0)]
@@ -784,7 +842,7 @@ def build_causal_chain_from_trained_predictions(*, prediction_jsonl: Path, file_
         "final_chain": final_chain,
         "top_edges": top_edges,
         "top_chains": chain_rows,
-        "prediction_jsonl": str(prediction_jsonl),
+        "prediction_jsonl": prediction_jsonl_str,
     }
 
 

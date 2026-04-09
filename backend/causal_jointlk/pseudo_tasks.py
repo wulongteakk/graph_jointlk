@@ -91,20 +91,27 @@ class PseudoTaskFactory:
             hits.append("rel=causal")
         # Domain relation priors for safety-incident documents
         rel_u = str(relation_type or "").upper()
+        # Strong prior: KG/IE relation already states causal semantics.
+        # This helps avoid "all-negative" pseudo labels when text cues are sparse
+        # but relation ontology already marks a cause edge (e.g. HAS_CAUSE).
+        if rel_u in {
+            "HAS_CAUSE",
+            "HASCAUSE",
+            "CAUSE_OF",
+            "CAUSED_BY",
+            "ROOT_CAUSE",
+            "CAUSES",
+            "LEADS_TO",
+            "RESULTS_IN",
+            "TRIGGERS",
+            "INDUCES",
+        }:
+            score += 0.58
+            hits.append("rel=explicit_causal")
+        # Domain relation priors for safety-incident documents
         if rel_u in {"AFFECTS", "INJURES", "KILLS", "HARMS"}:
             score += 0.28
             hits.append("rel=impact")
-        elif any(x in rel_u for x in ["CAUSE", "LEAD", "RESULT", "TRIGGER", "INDUCE"]):
-            score += 0.25
-            hits.append("rel=causal_like")
-
-        src = str(source_layer or "").upper()
-        tgt = str(target_layer or "").upper()
-        if src in {"HAZARDEVENT", "CAUSE", "RISK", "EVENT", "UNSAFEACTION", "MALFUNCTION"} and tgt in {
-            "PERSON", "HARMEVENT", "OUTCOME", "CONSEQUENCE", "INJURY", "DEATH"
-        }:
-            score += 0.22
-            hits.append("layer=hazard_to_outcome")
 
         if evidence.get("negation_hit"):
             score -= 0.30
