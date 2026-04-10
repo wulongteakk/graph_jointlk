@@ -337,25 +337,48 @@ def _jointlk_failure_hint(log_tail: str) -> str:
         return "json_serialize_error"
     return "unclassified_runtime_error"
 
-
 def _summarize_causal_labels(jsonl_path: Path, max_rows: int = 50000) -> dict:
     rows = _read_jsonl_rows(str(jsonl_path), max_rows=max_rows)
-    pos = 0
-    neg = 0
-    abstain = 0
+    strict_pos = 0
+    strict_neg = 0
+    strict_abstain = 0
+    support_pos = 0
+    support_neg = 0
+    support_unresolved = 0
     for row in rows:
-        label = row.get("causal_labels", row.get("silver_edge_causal", row.get("label", -1)))
+        label = row.get("causal_labels", row.get("silver_edge_causal", -1))
         try:
             label_int = int(label)
         except Exception:
             label_int = -1
         if label_int == 1:
-            pos += 1
+            strict_pos += 1
         elif label_int == 0:
-            neg += 1
+            strict_neg += 1
         else:
-            abstain += 1
-    return {"rows": len(rows), "positive": pos, "negative": neg, "abstain": abstain}
+            strict_abstain += 1
+
+        try:
+            support_mask = int(row.get("support_mask", row.get("causal_mask", 0)))
+        except Exception:
+            support_mask = 0
+        support_label_raw = row.get("support_label", row.get("label", 0))
+        try:
+            support_label = int(support_label_raw)
+        except Exception:
+            support_label = 0
+        if support_mask != 1:
+            support_unresolved += 1
+        elif support_label == 1:
+            support_pos += 1
+        else:
+            support_neg += 1
+    return {
+        "rows": len(rows),
+        "strict_label_stats": {"positive": strict_pos, "negative": strict_neg, "abstain": strict_abstain},
+        "support_label_stats": {"positive": support_pos, "negative": support_neg, "unresolved": support_unresolved},
+    }
+
 
 def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, doc_id: str):
     """
@@ -398,9 +421,10 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
         }
 
     train_label_stats = _summarize_causal_labels(train_jsonl_path)
-    if train_label_stats.get("positive", 0) <= 0:
+    support_stats = train_label_stats.get("support_label_stats", {})
+    if int(support_stats.get("positive", 0) or 0) <= 0:
         logging.warning(
-            "[jointlk-train] no positive causal labels found in train_jsonl; model may converge to all-negative predictions. stats=%s path=%s",
+            "[jointlk-train] no positive support labels found in train_jsonl; model may converge to all-negative predictions. stats=%s path=%s",
             train_label_stats,
             str(train_jsonl_path),
         )
@@ -619,7 +643,7 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                     if trained_chain and str(
                             trained_chain.get("reason") or "") == "no_trained_causal_edges" and trained_chain.get(
                             "fallback_chain"):
-                        source_tag = "pseudo_fallback_after_training"
+                        source_tag = "pseudo_fallback_same_threshold"
                     logging.info(
                         "[JointLK][final-causal-chain] %s",
                         json.dumps(
@@ -816,7 +840,7 @@ def build_causal_chain_from_trained_predictions(
             "unknown_relation_ratio": round(unknown_relation_ratio, 6),
             "missing_evidence_ratio": round(missing_evidence_ratio, 6),
             "positive_pseudo_count": int(fallback.get("num_edges", 0)) if fallback else 0,
-            "fallback_source": "pseudo_labels" if fallback else None,
+            "fallback_source": "pseudo_fallback_same_threshold" if fallback else None,
             "fallback_chain": fallback.get("final_chain") if fallback else None,
             "final_chain": fallback.get("final_chain") if fallback else None,
             "top_edges": fallback.get("top_edges", []) if fallback else [],
@@ -920,11 +944,12 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
     rows = _read_jsonl_rows(train_jsonl)
     causal_edges = []
     for row in rows:
-        is_pos = int(row.get("causal_labels", row.get("silver_edge_causal", -1)) or -1) == 1
-        causal_conf = float(row.get("causal_conf", 0.0) or 0.0)
-        relaxed_pos = (not is_pos) and causal_conf >= min_causal_conf
-        if not (is_pos or relaxed_pos):
+        support_mask = int(row.get("support_mask", row.get("causal_mask", 0)) or 0)
+        support_label = int(row.get("support_label", row.get("label", 0)) or 0)
+        if not (support_mask == 1 and support_label == 1):
             continue
+        causal_conf = float(row.get("causal_conf", 0.0) or 0.0)
+        support_source = str(row.get("support_source") or "hard")
         edge = {
             "doc_id": row.get("doc_id"),
             "source_node_id": row.get("source_node_id"),
@@ -932,12 +957,14 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
             "target_node_id": row.get("target_node_id"),
             "target_text": row.get("target_text"),
             "relation_type": row.get("relation_type"),
-            "causal_label": 1 if is_pos else 0,
+            "causal_label": 1,
             "causal_conf": causal_conf,
             "enable_label": int(row.get("enable_labels", row.get("silver_edge_enable", -1)) or -1),
             "dir_label": int(row.get("dir_labels", row.get("silver_causal_dir", -1)) or -1),
             "temporal_label": int(row.get("temp_labels", row.get("silver_temporal_before", -1)) or -1),
             "review_status": row.get("review_status"),
+            "candidate_type": "relaxed" if support_source == "relaxed" else "hard",
+            "support_source": support_source,
         }
         edge["score"] = float(edge["causal_conf"]) + 0.05 * max(edge["enable_label"], 0)
         causal_edges.append(edge)

@@ -279,12 +279,26 @@ def gather_evidence_units_for_edge(
 def build_pseudo_label_record(
     edge: CandidateEdge,
     decision: Any,
+    *,
+    min_causal_conf: float,
 ) -> Dict[str, Any]:
     base = f"{edge.doc_id}|{edge.file_name}|{edge.source_node_id}|{edge.relation_type}|{edge.target_node_id}"
     pseudo_label_id = f"pl_{sha1_text(base)}"
     evidence_text = decision.evidence_text
     evidence_texts = [str(evidence_text)] if str(evidence_text or "").strip() else []
     relation_name = edge.relation_type
+    strict_causal = int(decision.silver_edge_causal)
+    causal_conf = float(decision.causal_conf)
+    relaxed_positive = strict_causal != 1 and causal_conf >= float(min_causal_conf)
+    hard_negative = strict_causal == 0
+    support_positive = strict_causal == 1 or relaxed_positive
+    support_label = 1 if support_positive else 0
+    support_mask = 1 if (support_positive or hard_negative) else 0
+    support_source = (
+        "hard"
+        if strict_causal == 1
+        else ("relaxed" if relaxed_positive else ("hard_negative" if hard_negative else "unresolved_abstain"))
+    )
     return {
         "pseudo_label_id": pseudo_label_id,
         "doc_id": edge.doc_id,
@@ -300,10 +314,14 @@ def build_pseudo_label_record(
         "relation_type": relation_name,
         "candidate_relation": relation_name,
         "relation_text": relation_name,
-        "label": 1 if int(decision.silver_edge_causal) == 1 else 0,
-        "confidence": float(decision.causal_conf),
-        "silver_edge_causal": int(decision.silver_edge_causal),
-        "causal_conf": float(decision.causal_conf),
+        "label": int(support_label),
+        "confidence": causal_conf,
+        "silver_edge_causal": strict_causal,
+        "causal_conf": causal_conf,
+        "support_label": int(support_label),
+        "support_mask": int(support_mask),
+        "support_confidence": causal_conf,
+        "support_source": support_source,
         "silver_edge_enable": int(decision.silver_edge_enable),
         "enable_conf": float(decision.enable_conf),
         "silver_causal_dir": int(decision.silver_causal_dir),
@@ -606,8 +624,13 @@ def export_pseudo_label_package(
             flat["temp_mask"] = 0 if int(flat["temp_labels"]) == -1 else 1
             flat["src_first_mask"] = 0 if int(flat["src_first_labels"]) == -1 else 1
             flat["dst_first_mask"] = 0 if int(flat["dst_first_labels"]) == -1 else 1
-            flat["support_label"] = 1 if int(flat["causal_labels"]) == 1 else 0
-            flat["support_mask"] = int(flat["causal_mask"])
+            flat["support_label"] = int(row.get("support_label", 1 if int(flat["causal_labels"]) == 1 else 0))
+            flat["support_mask"] = int(row.get("support_mask", int(flat["causal_mask"])))
+            flat["support_confidence"] = float(row.get("support_confidence", row.get("causal_conf", 0.0)))
+            flat["support_source"] = row.get("support_source") or (
+                "hard" if int(flat["causal_labels"]) == 1 else (
+                    "hard_negative" if int(flat["causal_labels"]) == 0 else "unresolved_abstain")
+            )
             # legacy fallback field: keep label for compatibility with historical consumers.
             flat["label"] = int(flat["support_label"])
             flat["label_confidence"] = float(row.get("causal_conf", 0.0))
@@ -736,6 +759,7 @@ def run_pseudo_label_pipeline_for_doc(
     if not cfg.enabled:
         return {"ok": False, "skipped": True, "reason": "disabled"}
     tracer = RuntimeTracer(enabled=True)
+    min_causal_conf = float(os.getenv("AUTO_JOINTLK_CHAIN_MIN_CAUSAL_CONF", "0.55"))
     tracer.log_stage_console(
         "pseudo-pipeline-start",
         {
@@ -817,13 +841,13 @@ def run_pseudo_label_pipeline_for_doc(
                         "file_name": file_name,
                         "edge_index": edge_idx,
                         "source_text": edge.source_text,
-                        "relation_type": row.get("relation_type"),
+                        "relation_type": edge.relation_type,
                         "target_text": edge.target_text,
-                        "label": row.get("silver_edge_causal"),
-                        "confidence": float(row.get("causal_conf") or 0.0),
-                        "primary_rule": ((row.get("rule_hits") or {}).get("edge_causal") or [None])[0],
-                        "silver_edge_causal": row.get("silver_edge_causal"),
-                        "causal_conf": float(row.get("causal_conf") or 0.0),
+                        "label": -1,
+                        "confidence": 0.0,
+                        "primary_rule": "skip_trivial_edge",
+                        "silver_edge_causal": -1,
+                        "causal_conf": 0.0,
                     }
                 )
             continue
@@ -859,7 +883,7 @@ def run_pseudo_label_pipeline_for_doc(
             chunk_distance=chunk_distance,
         )
 
-        row = build_pseudo_label_record(edge, decision)
+        row = build_pseudo_label_record(edge, decision, min_causal_conf=min_causal_conf)
         label_rows.append(row)
         for task_field in [
             "silver_edge_causal",
@@ -910,10 +934,17 @@ def run_pseudo_label_pipeline_for_doc(
             "abstain_counts": dict(task_abstain_counts),
             "candidate_generation": candidate_stats,
             "configs": {
-                "prior_config": cfg.prior_config_path,
-                "pseudo_rule_config": cfg.pseudo_rule_config_path,
-                "candidate_generator_config": candidate_cfg_path
-            },
+                    "prior_config": cfg.prior_config_path,
+                    "pseudo_rule_config": cfg.pseudo_rule_config_path,
+                    "candidate_generator_config": candidate_cfg_path
+                },
+            "resolved_pseudo_rule_config_path": pseudo_cfg_path,
+            "resolved_edge_causal_thresholds": (
+                ((pseudo_cfg.get("task_thresholds") or {}).get("edge_causal") or {})
+                if isinstance(pseudo_cfg, dict)
+                else {}
+            ),
+            "config_sha1": sha1_text(json.dumps((pseudo_cfg or {}), ensure_ascii=False, sort_keys=True)),
         },
     )
     preview_limit = max(0, int(console_preview_limit or 0))

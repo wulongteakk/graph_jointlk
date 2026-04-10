@@ -147,8 +147,13 @@ class CausalEdgeDataset(Dataset):
                 obj.setdefault("dst_first_labels", obj.get("silver_node_first_dst", -1))
                 obj.setdefault("causal_mask", 0 if int(obj.get("causal_labels", -1)) < 0 else 1)
 
-                obj.setdefault("support_label", 1 if int(obj.get("causal_labels", -1)) == 1 else 0)
-                obj.setdefault("support_mask", int(obj.get("causal_mask", 0)))
+                if "support_label" not in obj:
+                    obj["support_label"] = int(obj.get("label", 1 if int(obj.get("causal_labels", -1)) == 1 else 0))
+                if "support_mask" not in obj:
+                    if "causal_mask" in obj:
+                        obj["support_mask"] = int(obj.get("causal_mask", 0))
+                    else:
+                        obj["support_mask"] = 1 if int(obj.get("support_label", 0)) in (0, 1) else 0
                 obj.setdefault("label", int(obj.get("support_label", obj.get("label", 0))))
 
                 obj.setdefault("enable_mask", 0 if int(obj.get("enable_labels", -1)) < 0 else 1)
@@ -171,6 +176,7 @@ class CausalEdgeDataset(Dataset):
         unk_rel = 0
         missing_ev = 0
         support_cov = 0
+        support_pos = 0
         for row in rows:
             rel = str(
                 row.get("candidate_relation")
@@ -184,12 +190,16 @@ class CausalEdgeDataset(Dataset):
             if not evidence_texts:
                 missing_ev += 1
             support_cov += int(row.get("support_mask", row.get("causal_mask", 0)) or 0)
+            if int(row.get("support_mask", 0) or 0) == 1 and int(
+                    row.get("support_label", row.get("label", 0)) or 0) == 1:
+                support_pos += 1
         logging.info(
-            "[CausalEdgeDataset] rows=%s unk_relation_ratio=%.4f missing_evidence_ratio=%.4f support_mask_coverage=%.4f path=%s",
+            "[CausalEdgeDataset] rows=%s unk_relation_ratio=%.4f missing_evidence_ratio=%.4f support_mask_coverage=%.4f support_positive_count=%s path=%s",
             total,
             unk_rel / max(1, total),
             missing_ev / max(1, total),
             support_cov / max(1, total),
+            support_pos,
             self.jsonl_path,
         )
 

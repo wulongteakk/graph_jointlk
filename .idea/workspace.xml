@@ -4,11 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="全局组链6.2">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="全局组链6.3">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_pipeline.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_tasks.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/causal_jointlk/pseudo_tasks.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/experiments/causal_jointlk/dataset.py" beforeDir="false" afterPath="$PROJECT_DIR$/experiments/causal_jointlk/dataset.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -256,14 +258,6 @@
       <workItem from="1753704928935" duration="309000" />
       <workItem from="1753705248627" duration="3199000" />
       <workItem from="1755439688727" duration="17000" />
-    </task>
-    <task id="LOCAL-00019" summary="新版知识图谱修复1.0">
-      <option name="closed" value="true" />
-      <created>1774280757577</created>
-      <option name="number" value="00019" />
-      <option name="presentableId" value="LOCAL-00019" />
-      <option name="project" value="LOCAL" />
-      <updated>1774280757577</updated>
     </task>
     <task id="LOCAL-00020" summary="新版知识图谱修复2.0">
       <option name="closed" value="true" />
@@ -649,7 +643,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775782673428</updated>
     </task>
-    <option name="localTasksCounter" value="68" />
+    <task id="LOCAL-00068" summary="全局组链6.3">
+      <option name="closed" value="true" />
+      <created>1775785740736</created>
+      <option name="number" value="00068" />
+      <option name="presentableId" value="LOCAL-00068" />
+      <option name="project" value="LOCAL" />
+      <updated>1775785740736</updated>
+    </task>
+    <option name="localTasksCounter" value="69" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -667,7 +669,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="node prior branch-aware 特征" />
     <MESSAGE value="beam chain trace细化+node prior branch-aware 特征" />
     <MESSAGE value="新增branch、severity、trace分组" />
     <MESSAGE value="node_first训练目标分src/dst" />
@@ -692,7 +693,8 @@
     <MESSAGE value="全局组链5.0" />
     <MESSAGE value="全局组链6.0" />
     <MESSAGE value="全局组链6.2" />
-    <option name="LAST_COMMIT_MESSAGE" value="全局组链6.2" />
+    <MESSAGE value="全局组链6.3" />
+    <option name="LAST_COMMIT_MESSAGE" value="全局组链6.3" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
