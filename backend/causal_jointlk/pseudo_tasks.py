@@ -91,10 +91,7 @@ class PseudoTaskFactory:
             hits.append("rel=causal")
         # Domain relation priors for safety-incident documents
         rel_u = str(relation_type or "").upper()
-        # Strong prior: KG/IE relation already states causal semantics.
-        # This helps avoid "all-negative" pseudo labels when text cues are sparse
-        # but relation ontology already marks a cause edge (e.g. HAS_CAUSE).
-        if rel_u in {
+        explicit_causal_rel = rel_u in {
             "HAS_CAUSE",
             "HASCAUSE",
             "CAUSE_OF",
@@ -105,7 +102,11 @@ class PseudoTaskFactory:
             "RESULTS_IN",
             "TRIGGERS",
             "INDUCES",
-        }:
+        }
+        # Strong prior: KG/IE relation already states causal semantics.
+        # This helps avoid "all-negative" pseudo labels when text cues are sparse
+        # but relation ontology already marks a cause edge (e.g. HAS_CAUSE).
+        if explicit_causal_rel:
             score += 0.58
             hits.append("rel=explicit_causal")
         # Domain relation priors for safety-incident documents
@@ -113,15 +114,16 @@ class PseudoTaskFactory:
             score += 0.28
             hits.append("rel=impact")
 
-        if evidence.get("negation_hit"):
-            score -= 0.30
-            hits.append("negation")
         if evidence.get("uncertainty_hit"):
             score -= 0.20
             hits.append("uncertain")
         score = _clamp01(score)
-        return TaskDecision(label=self._discretize(score, "edge_causal", (0.80, 0.20)), confidence=score, rule_hits=hits)
-
+        # For explicit causal relations, avoid producing abstain (-1) because this
+        # will collapse training into all-negative samples.
+        if explicit_causal_rel:
+            score = max(score, 0.90)
+        return TaskDecision(label=self._discretize(score, "edge_causal", (0.80, 0.20)), confidence=score,
+                            rule_hits=hits)
     def label_edge_enable(self, text: str, relation_type: str, evidence: Dict[str, Any]) -> TaskDecision:
         text_n = normalize_text(text)
         hits = _contains_any(text_n, self.enable_kw)

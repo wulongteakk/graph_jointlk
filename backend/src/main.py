@@ -615,6 +615,11 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                         pseudo_train_jsonl=train_jsonl_path,
                     )
                     final_chain_row = trained_chain.get("final_chain") if trained_chain else None
+                    source_tag = "trained_model_predictions"
+                    if trained_chain and str(
+                            trained_chain.get("reason") or "") == "no_trained_causal_edges" and trained_chain.get(
+                            "fallback_chain"):
+                        source_tag = "pseudo_fallback_after_training"
                     logging.info(
                         "[JointLK][final-causal-chain] %s",
                         json.dumps(
@@ -624,10 +629,11 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                                 "score": final_chain_row.get("score") if final_chain_row else None,
                                 "chain_text": final_chain_row.get("chain_text") if final_chain_row else None,
                                 "length": final_chain_row.get("length") if final_chain_row else None,
-                                "source": "trained_model_predictions",
+                                "source": source_tag,
                                 "prediction_jsonl": trained_chain.get("prediction_jsonl") if trained_chain else None,
                                 "ok": bool(trained_chain.get("ok")) if trained_chain else False,
-                                "reason": trained_chain.get("reason") if trained_chain else "missing_trained_chain_payload",
+                                "reason": trained_chain.get(
+                                    "reason") if trained_chain else "missing_trained_chain_payload",
                                 "num_edges": int(trained_chain.get("num_edges", 0)) if trained_chain else 0,
                                 "num_chains": int(trained_chain.get("num_chains", 0)) if trained_chain else 0,
                                 "row_count": int(trained_chain.get("row_count", 0)) if trained_chain else 0,
@@ -812,8 +818,11 @@ def build_causal_chain_from_trained_predictions(
             "positive_pseudo_count": int(fallback.get("num_edges", 0)) if fallback else 0,
             "fallback_source": "pseudo_labels" if fallback else None,
             "fallback_chain": fallback.get("final_chain") if fallback else None,
+            "final_chain": fallback.get("final_chain") if fallback else None,
+            "top_edges": fallback.get("top_edges", []) if fallback else [],
+            "top_chains": fallback.get("top_chains", []) if fallback else [],
             "num_edges": 0,
-            "num_chains": 0,
+            "num_chains": int(fallback.get("num_chains", 0)) if fallback else 0,
             "prediction_jsonl": prediction_jsonl_str,
         }
 
