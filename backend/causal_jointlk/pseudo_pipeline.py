@@ -824,6 +824,7 @@ def run_pseudo_label_pipeline_for_doc(
                         "primary_rule": ((row.get("rule_hits") or {}).get("edge_causal") or [None])[0],
                         "silver_edge_causal": row.get("silver_edge_causal"),
                         "causal_conf": float(row.get("causal_conf") or 0.0),
+                    }
                 )
             continue
 
