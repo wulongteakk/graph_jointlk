@@ -262,7 +262,7 @@ def batchify_examples(
         temp_labels.append(max(0.0, t_label))
         src_first_labels.append(max(0.0, s_label))
         dst_first_labels.append(max(0.0, d2_label))
-        causal_mask.append(support_mask_value))
+        causal_mask.append(support_mask_value)
         enable_mask.append(float(ex.get("enable_mask", 0 if e_label < 0 else 1)))
         dir_mask.append(float(ex.get("dir_mask", 0 if d_label < 0 else 1)))
         temp_mask.append(float(ex.get("temp_mask", 0 if t_label < 0 else 1)))
