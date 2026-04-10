@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import os
 import re
 from torch.utils.data import Dataset
-
+import logging
 from modeling.causal_jointlk_io import (
     build_example_text,
     build_node_type_to_id,
@@ -106,14 +106,21 @@ class CausalEdgeDataset(Dataset):
 
                 obj.setdefault("sample_id", f"{self.jsonl_path.stem}-{line_idx}")
                 obj.setdefault("doc_title", obj.get("file_name") or obj.get("doc_id") or "")
-                obj.setdefault("evidence_texts", [])
+                if not obj.get("evidence_texts"):
+                    evidence_text = obj.get("evidence_text")
+                    obj["evidence_texts"] = [evidence_text] if str(evidence_text or "").strip() else []
                 obj.setdefault("node_texts", [])
                 obj.setdefault("node_layer_types", [])
                 obj.setdefault("node_scores", [1.0] * len(obj.get("node_texts") or []))
 
                 source_text = obj.get("source_text") or _safe_pick_text(obj, obj.get("source_idx", 0), "source")
                 target_text = obj.get("target_text") or _safe_pick_text(obj, obj.get("target_idx", 1), "target")
-                relation_text = obj.get("candidate_relation") or obj.get("relation_text") or "UNK"
+                relation_text = (
+                        obj.get("candidate_relation")
+                        or obj.get("relation_text")
+                        or obj.get("relation_type")
+                        or "UNK"
+                )
 
                 obj["text"] = build_example_text(
                     query=obj.get("query"),
@@ -139,6 +146,11 @@ class CausalEdgeDataset(Dataset):
                 obj.setdefault("src_first_labels", obj.get("silver_node_first_src", -1))
                 obj.setdefault("dst_first_labels", obj.get("silver_node_first_dst", -1))
                 obj.setdefault("causal_mask", 0 if int(obj.get("causal_labels", -1)) < 0 else 1)
+
+                obj.setdefault("support_label", 1 if int(obj.get("causal_labels", -1)) == 1 else 0)
+                obj.setdefault("support_mask", int(obj.get("causal_mask", 0)))
+                obj.setdefault("label", int(obj.get("support_label", obj.get("label", 0))))
+
                 obj.setdefault("enable_mask", 0 if int(obj.get("enable_labels", -1)) < 0 else 1)
                 obj.setdefault("dir_mask", 0 if int(obj.get("dir_labels", -1)) < 0 else 1)
                 obj.setdefault("temp_mask", 0 if int(obj.get("temp_labels", -1)) < 0 else 1)
@@ -148,7 +160,38 @@ class CausalEdgeDataset(Dataset):
                 obj.setdefault("module_id", obj.get("module_id") or "construction_safety")
 
                 rows.append(obj)
+        self._log_loader_stats(rows)
         return rows
+
+    def _log_loader_stats(self, rows: Sequence[Dict[str, Any]]) -> None:
+        total = len(rows)
+        if total <= 0:
+            logging.info("[CausalEdgeDataset] loaded 0 rows from %s", self.jsonl_path)
+            return
+        unk_rel = 0
+        missing_ev = 0
+        support_cov = 0
+        for row in rows:
+            rel = str(
+                row.get("candidate_relation")
+                or row.get("relation_text")
+                or row.get("relation_type")
+                or "UNK"
+            ).upper()
+            if rel == "UNK":
+                unk_rel += 1
+            evidence_texts = row.get("evidence_texts") or []
+            if not evidence_texts:
+                missing_ev += 1
+            support_cov += int(row.get("support_mask", row.get("causal_mask", 0)) or 0)
+        logging.info(
+            "[CausalEdgeDataset] rows=%s unk_relation_ratio=%.4f missing_evidence_ratio=%.4f support_mask_coverage=%.4f path=%s",
+            total,
+            unk_rel / max(1, total),
+            missing_ev / max(1, total),
+            support_cov / max(1, total),
+            self.jsonl_path,
+        )
 
     def _derive_sample_weight(self, record: Dict[str, Any]) -> float:
         label_source = str(record.get("label_source") or "unknown")

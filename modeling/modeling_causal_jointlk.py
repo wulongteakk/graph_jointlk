@@ -310,19 +310,27 @@ def compute_training_loss(
 ) -> Dict[str, torch.Tensor]:
     labels = labels.float()
     causal_logits = outputs.get("causal_logits", outputs["support_logits"])
-    support_loss = weighted_bce_with_logits(
-        causal_logits,
-        labels,
-        sample_weights=sample_weights,
-        pos_weight=pos_weight,
-    )
+    multitask_labels = multitask_labels or {}
+    support_mask = multitask_labels.get("causal_mask")
+    if support_mask is None:
+        support_mask = torch.ones_like(labels)
+    support_mask = support_mask.float()
+    valid_mask = support_mask > 0.5
+    if valid_mask.any():
+        support_weights = sample_weights[valid_mask] if sample_weights is not None else None
+        support_loss = weighted_bce_with_logits(
+            causal_logits[valid_mask],
+            labels[valid_mask],
+            sample_weights=support_weights,
+            pos_weight=pos_weight,
+        )
+    else:
+        support_loss = causal_logits.new_tensor(0.0)
 
     total_loss = support_loss
     relation_loss = torch.zeros_like(support_loss)
     aux_loss = torch.zeros_like(support_loss)
     cf_loss = torch.zeros_like(support_loss)
-
-    multitask_labels = multitask_labels or {}
 
     def _masked_bce(logits: torch.Tensor, labels_local: Optional[torch.Tensor], mask: Optional[torch.Tensor]) -> torch.Tensor:
         if labels_local is None or mask is None:
@@ -341,7 +349,7 @@ def compute_training_loss(
     ) / 5.0
 
     if relation_labels is not None:
-        positive_mask = labels > 0.5
+        positive_mask = (labels > 0.5) & valid_mask
         if positive_mask.any():
             relation_losses = F.cross_entropy(
                 outputs["relation_logits"][positive_mask],

@@ -226,6 +226,8 @@ def evaluate(
             labels=batch["labels"],
             relation_labels=batch["relation_labels"],
             multitask_labels={
+                "causal_labels": batch.get("labels"),
+                "causal_mask": batch.get("causal_mask"),
                 "enable_labels": batch.get("enable_labels"),
                 "dir_labels": batch.get("dir_labels"),
                 "temp_labels": batch.get("temp_labels"),
@@ -492,6 +494,8 @@ def main() -> None:
                 labels=batch["labels"],
                 relation_labels=batch["relation_labels"],
                 multitask_labels={
+                    "causal_labels": batch.get("labels"),
+                    "causal_mask": batch.get("causal_mask"),
                     "enable_labels": batch.get("enable_labels"),
                     "dir_labels": batch.get("dir_labels"),
                     "temp_labels": batch.get("temp_labels"),

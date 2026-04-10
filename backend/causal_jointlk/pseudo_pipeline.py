@@ -282,6 +282,9 @@ def build_pseudo_label_record(
 ) -> Dict[str, Any]:
     base = f"{edge.doc_id}|{edge.file_name}|{edge.source_node_id}|{edge.relation_type}|{edge.target_node_id}"
     pseudo_label_id = f"pl_{sha1_text(base)}"
+    evidence_text = decision.evidence_text
+    evidence_texts = [str(evidence_text)] if str(evidence_text or "").strip() else []
+    relation_name = edge.relation_type
     return {
         "pseudo_label_id": pseudo_label_id,
         "doc_id": edge.doc_id,
@@ -294,7 +297,9 @@ def build_pseudo_label_record(
         "target_node_id": edge.target_node_id,
         "target_text": edge.target_text,
         "target_layer": edge.target_layer,
-        "relation_type": edge.relation_type,
+        "relation_type": relation_name,
+        "candidate_relation": relation_name,
+        "relation_text": relation_name,
         "label": 1 if int(decision.silver_edge_causal) == 1 else 0,
         "confidence": float(decision.causal_conf),
         "silver_edge_causal": int(decision.silver_edge_causal),
@@ -312,7 +317,8 @@ def build_pseudo_label_record(
         "evidence_unit_id": decision.evidence_unit_id,
         "evidence_start": None,
         "evidence_end": None,
-        "evidence_text": decision.evidence_text,
+        "evidence_text": evidence_text,
+        "evidence_texts": evidence_texts,
         "rule_hits": decision.rule_hits,
         "features": decision.features,
         "sample_weight": float(decision.sample_weight),
@@ -600,8 +606,16 @@ def export_pseudo_label_package(
             flat["temp_mask"] = 0 if int(flat["temp_labels"]) == -1 else 1
             flat["src_first_mask"] = 0 if int(flat["src_first_labels"]) == -1 else 1
             flat["dst_first_mask"] = 0 if int(flat["dst_first_labels"]) == -1 else 1
-            flat["label"] = 1 if int(flat["causal_labels"]) == 1 else 0
+            flat["support_label"] = 1 if int(flat["causal_labels"]) == 1 else 0
+            flat["support_mask"] = int(flat["causal_mask"])
+            # legacy fallback field: keep label for compatibility with historical consumers.
+            flat["label"] = int(flat["support_label"])
             flat["label_confidence"] = float(row.get("causal_conf", 0.0))
+            flat["candidate_relation"] = row.get("candidate_relation") or row.get("relation_type")
+            flat["relation_text"] = row.get("relation_text") or row.get("relation_type")
+            evidence_text = row.get("evidence_text")
+            flat["evidence_texts"] = row.get("evidence_texts") or (
+                [evidence_text] if str(evidence_text or "").strip() else [])
             flat["twin_group_id"] = cf_meta.get("twin_group_id")
             flat["cf_role"] = cf_meta.get("cf_role", "none")
             f.write(json.dumps(flat, ensure_ascii=False) + "\n")
@@ -803,10 +817,13 @@ def run_pseudo_label_pipeline_for_doc(
                         "file_name": file_name,
                         "edge_index": edge_idx,
                         "source_text": edge.source_text,
-                        "relation_type": edge.relation_type,
+                        "relation_type": row.get("relation_type"),
                         "target_text": edge.target_text,
-                        "reason": "trivial_or_self_edge",
-                    }
+                        "label": row.get("silver_edge_causal"),
+                        "confidence": float(row.get("causal_conf") or 0.0),
+                        "primary_rule": ((row.get("rule_hits") or {}).get("edge_causal") or [None])[0],
+                        "silver_edge_causal": row.get("silver_edge_causal"),
+                        "causal_conf": float(row.get("causal_conf") or 0.0),
                 )
             continue
 
@@ -899,7 +916,15 @@ def run_pseudo_label_pipeline_for_doc(
         },
     )
     preview_limit = max(0, int(console_preview_limit or 0))
-    preview = label_rows[:preview_limit]
+    sorted_preview_rows = sorted(
+        label_rows,
+        key=lambda r: (
+            int(r.get("silver_edge_causal", -1)) == 1,
+            float(r.get("causal_conf") or 0.0),
+        ),
+        reverse=True,
+    )
+    preview = sorted_preview_rows[:preview_limit]
     if preview_limit > 0:
         print_pseudo_label_rows_console(label_rows, limit=preview_limit)
     tracer.log_jointlk_input_preview_console(label_rows, top_k=min(5, len(label_rows)))
@@ -940,6 +965,12 @@ def run_pseudo_label_pipeline_for_doc(
                 "skipped_trivial_edges": skipped_trivial_edges,
                 "abstain_counts": dict(task_abstain_counts),
                 "task_coverage": manifest.get("task_coverage", {}),
+                "positive_counts": {
+                    "edge_causal": sum(1 for x in label_rows if int(x.get("silver_edge_causal", -1)) == 1),
+                },
+                "negative_counts": {
+                    "edge_causal": sum(1 for x in label_rows if int(x.get("silver_edge_causal", -1)) == 0),
+                },
             }
         )
     return {"ok": True, "export_dir": str(out_dir), **manifest, "preview": preview}

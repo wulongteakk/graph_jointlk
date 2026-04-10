@@ -128,7 +128,9 @@ def _build_pseudo_console_hook(show_edge_process: bool):
             )
             return
         if stage == "doc_summary":
-            breakdown = event.get("label_breakdown") or {}
+            abstain_counts = event.get("abstain_counts") or {}
+            positive_counts = event.get("positive_counts") or {}
+            negative_counts = event.get("negative_counts") or {}
             _log_jointlk_stage(
                 "pseudo-doc-summary",
                 {
@@ -136,8 +138,9 @@ def _build_pseudo_console_hook(show_edge_process: bool):
                     "file_name": event.get("file_name"),
                     "num_candidate_edges": event.get("num_candidate_edges"),
                     "num_pseudo_labels": event.get("num_pseudo_labels"),
-                    "positive": breakdown.get("positive", 0),
-                    "negative": breakdown.get("negative", 0),
+                    "positive": int(positive_counts.get("edge_causal", 0)),
+                    "negative": int(negative_counts.get("edge_causal", 0)),
+                    "abstain": int(abstain_counts.get("silver_edge_causal", 0)),
                     "ambiguous_edges": event.get("ambiguous_edges", 0),
                 },
             )
@@ -609,6 +612,7 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
                         prediction_jsonl=output_dir / "best_dev_predictions.jsonl",
                         file_name=file_name,
                         doc_id=doc_id,
+                        pseudo_train_jsonl=train_jsonl_path,
                     )
                     final_chain_row = trained_chain.get("final_chain") if trained_chain else None
                     logging.info(
@@ -723,7 +727,13 @@ def _format_progress_bar(percent: int, width: int = 20) -> str:
     return "█" * fill + "░" * max(0, width - fill)
 
 
-def build_causal_chain_from_trained_predictions(*, prediction_jsonl: Path, file_name: str, doc_id: str):
+def build_causal_chain_from_trained_predictions(
+    *,
+    prediction_jsonl: Path,
+    file_name: str,
+    doc_id: str,
+    pseudo_train_jsonl: Path | None = None,
+):
     prediction_jsonl_str = str(prediction_jsonl)
     if not prediction_jsonl.exists():
         return {
@@ -741,6 +751,20 @@ def build_causal_chain_from_trained_predictions(*, prediction_jsonl: Path, file_
     max_chain_depth = int(os.getenv("AUTO_JOINTLK_CHAIN_MAX_DEPTH", "4"))
 
     rows = _read_jsonl_rows(str(prediction_jsonl))
+    unknown_relation_ratio = 0.0
+    missing_evidence_ratio = 0.0
+    if rows:
+        unknown_relation = 0
+        missing_evidence = 0
+        for row in rows:
+            rel_name = str(row.get("pred_relation_name") or row.get("relation_type") or "UNK").upper()
+            if rel_name == "UNK":
+                unknown_relation += 1
+            evidence = row.get("evidence_texts") or []
+            if not evidence and not str(row.get("evidence_text") or "").strip():
+                missing_evidence += 1
+        unknown_relation_ratio = unknown_relation / len(rows)
+        missing_evidence_ratio = missing_evidence / len(rows)
     causal_edges = []
     max_support_prob = 0.0
     for row in rows:
@@ -764,12 +788,30 @@ def build_causal_chain_from_trained_predictions(*, prediction_jsonl: Path, file_
         edge["score"] = conf + 0.05 * edge["enable_prob"] + 0.03 * edge["temporal_prob"]
         causal_edges.append(edge)
     if not causal_edges:
+        fallback = None
+        if pseudo_train_jsonl is not None and pseudo_train_jsonl.exists():
+            try:
+                fallback = build_causal_chain_preview_from_pseudo(
+                    pseudo_result={
+                        "ok": True,
+                        "paths": {"jointlk_multitask_train_jsonl": str(pseudo_train_jsonl)},
+                    },
+                    file_name=file_name,
+                    doc_id=doc_id,
+                )
+            except Exception:
+                logging.exception("[jointlk-train] pseudo fallback chain failed for doc_id=%s", doc_id)
         return {
-            "ok": False,
+            "ok": bool(fallback and fallback.get("ok")),
             "reason": "no_trained_causal_edges",
             "min_causal_conf": min_causal_conf,
             "row_count": len(rows),
             "max_support_prob": round(max_support_prob, 6),
+            "unknown_relation_ratio": round(unknown_relation_ratio, 6),
+            "missing_evidence_ratio": round(missing_evidence_ratio, 6),
+            "positive_pseudo_count": int(fallback.get("num_edges", 0)) if fallback else 0,
+            "fallback_source": "pseudo_labels" if fallback else None,
+            "fallback_chain": fallback.get("final_chain") if fallback else None,
             "num_edges": 0,
             "num_chains": 0,
             "prediction_jsonl": prediction_jsonl_str,
@@ -843,6 +885,8 @@ def build_causal_chain_from_trained_predictions(*, prediction_jsonl: Path, file_
         "top_edges": top_edges,
         "top_chains": chain_rows,
         "prediction_jsonl": prediction_jsonl_str,
+        "unknown_relation_ratio": round(unknown_relation_ratio, 6),
+        "missing_evidence_ratio": round(missing_evidence_ratio, 6),
     }
 
 
@@ -890,29 +934,13 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
         causal_edges.append(edge)
 
     if not causal_edges:
-        # fallback: provide likely causal candidates for inspection even if no hard positive edges
-        soft_threshold = float(os.getenv("AUTO_JOINTLK_CHAIN_SOFT_MIN_CAUSAL_CONF", "0.30"))
-        for row in rows:
-            causal_conf = float(row.get("causal_conf", 0.0) or 0.0)
-            if causal_conf < soft_threshold:
-                continue
-            edge = {
-                "doc_id": row.get("doc_id"),
-                "source_node_id": row.get("source_node_id"),
-                "source_text": row.get("source_text"),
-                "target_node_id": row.get("target_node_id"),
-                "target_text": row.get("target_text"),
-                "relation_type": row.get("relation_type"),
-                "causal_label": int(row.get("causal_labels", row.get("silver_edge_causal", -1)) or -1),
-                "causal_conf": causal_conf,
-                "enable_label": int(row.get("enable_labels", row.get("silver_edge_enable", -1)) or -1),
-                "dir_label": int(row.get("dir_labels", row.get("silver_causal_dir", -1)) or -1),
-                "temporal_label": int(row.get("temp_labels", row.get("silver_temporal_before", -1)) or -1),
-                "review_status": row.get("review_status"),
-                "candidate_type": "soft",
-            }
-            edge["score"] = float(edge["causal_conf"]) + 0.03 * max(edge["enable_label"], 0)
-            causal_edges.append(edge)
+        return {
+            "ok": False,
+            "reason": "no_pseudo_causal_edges_at_threshold",
+            "num_edges": 0,
+            "num_chains": 0,
+            "min_causal_conf": min_causal_conf,
+        }
 
     causal_edges.sort(key=lambda x: x["score"], reverse=True)
     top_edges = causal_edges[:max(top_k_edges, 0)]
@@ -1484,10 +1512,11 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
 
                 # merged_file_path have value only when file uploaded from local
 
-            causal_chain_preview = {
-                "ok": False,
-                "reason": "disabled_pretrain_preview_use_trained_chain_after_training",
-            }
+            causal_chain_preview = build_causal_chain_preview_from_pseudo(
+                pseudo_result=pseudo_result or {},
+                file_name=file_name,
+                doc_id=ctx.doc_id,
+            )
 
             try:
                 auto_train_result = maybe_trigger_auto_jointlk_training(
