@@ -84,30 +84,32 @@ class PseudoTaskFactory:
         target_layer: Optional[str] = None,
     ) -> TaskDecision:
         text_n = normalize_text(text)
+        rel_u = str(relation_type or "").upper()
+        explicit_causal_rel = False
         hits = _contains_any(text_n, self.causal_kw)
         score = 0.15 + 0.25 * bool(hits) + 0.20 * bool(evidence.get("shared_evidence"))
-        if str(relation_type).upper() in {"CAUSES", "LEADS_TO", "RESULTS_IN", "TRIGGERS", "INDUCES"}:
+        if rel_u in {"CAUSES", "LEADS_TO", "RESULTS_IN", "TRIGGERS", "INDUCES"}:
             score += 0.25
             hits.append("rel=causal")
-            # Domain relation priors for safety-incident documents
-            rel_u = str(relation_type or "").upper()
-            # Strong prior: KG/IE relation already states causal semantics.
-            # This helps avoid "all-negative" pseudo labels when text cues are sparse
-            # but relation ontology already marks a cause edge (e.g. HAS_CAUSE).
-            if rel_u in {
-                "HAS_CAUSE",
-                "HASCAUSE",
-                "CAUSE_OF",
-                "CAUSED_BY",
-                "ROOT_CAUSE",
-                "CAUSES",
-                "LEADS_TO",
-                "RESULTS_IN",
-                "TRIGGERS",
-                "INDUCES",
-            }:
-                score += 0.58
-                hits.append("rel=explicit_causal")
+        # Domain relation priors for safety-incident documents
+        # Strong prior: KG/IE relation already states causal semantics.
+        # This helps avoid "all-negative" pseudo labels when text cues are sparse
+        # but relation ontology already marks a cause edge (e.g. HAS_CAUSE).
+        if rel_u in {
+            "HAS_CAUSE",
+            "HASCAUSE",
+            "CAUSE_OF",
+            "CAUSED_BY",
+            "ROOT_CAUSE",
+            "CAUSES",
+            "LEADS_TO",
+            "RESULTS_IN",
+            "TRIGGERS",
+            "INDUCES",
+        }:
+            explicit_causal_rel = True
+            score += 0.58
+            hits.append("rel=explicit_causal")
 
         if evidence.get("uncertainty_hit"):
             score -= 0.20
