@@ -21,7 +21,8 @@ from .prior import CausalPrior, load_prior_config
 from .runtime_trace import RuntimeTracer
 from .schemas import CausalEdge, CausalNode, ExtractionResult
 from .severity_ranker import SeverityRanker
-
+from .standards_retrieval.retrieval_service import AccidentRetrievalService
+from .standards_retrieval.settings import RetrievalSettings
 
 class CausalJointLKService:
     def __init__(
@@ -40,6 +41,8 @@ class CausalJointLKService:
         branch_cfg = dict((self.prior.config.get("branch_decision") or {}))
         severity_cfg = dict((self.prior.config.get("severity") or {}))
         trace_cfg = dict((self.prior.config.get("trace") or {}))
+        decoder_cfg = dict((self.prior.config.get("decoder") or {}))
+        retrieval_cfg = dict((self.prior.config.get("standards_retrieval") or {}))
 
         self.branch_builder = BranchBuilder()
         self.branch_decoder = BranchRuleDecoder(
@@ -59,13 +62,30 @@ class CausalJointLKService:
         self.node_prior_builder = NodePriorBuilder()
         self.gbt4754_lookup = GBT4754Lookup()
         self.industry_classifier = IndustryClassifier(self.gbt4754_lookup)
-        self.gb6441_decoder = GB6441Decoder()
+        self.standard_retriever = None
+        if retrieval_cfg.get("enabled", True):
+            retrieval_settings = RetrievalSettings(
+                rule_library_path=retrieval_cfg.get("rule_library_path",
+                                                    "configs/standards/gb6441_2025_rule_library_v2.json"),
+                dense_top_k=int(retrieval_cfg.get("dense_top_k", 60)),
+                lexical_top_k=int(retrieval_cfg.get("lexical_top_k", 60)),
+                rerank_top_k=int(retrieval_cfg.get("rerank_top_k", 20)),
+                final_top_k=int(retrieval_cfg.get("top_k", 5)),
+                min_score_threshold=float(retrieval_cfg.get("min_score_threshold", 0.0)),
+            )
+            self.standard_retriever = AccidentRetrievalService.from_settings(retrieval_settings)
+        self.gb6441_decoder = GB6441Decoder(
+            base_dir=decoder_cfg.get("base_dir", "configs/standards"),
+            retriever=self.standard_retriever,
+            decoder_cfg=decoder_cfg,
+        )
         self.postprocessor = EdgePostProcessor(self.prior)
         self.trace_defaults = {
             "enabled": bool(trace_cfg.get("enabled", True)),
             "top_edges": int(trace_cfg.get("top_edges", 10)),
             "top_chains": int(trace_cfg.get("top_chains", 5)),
             "top_branches": int(trace_cfg.get("top_branches", 5)),
+            "retrieval_top_k": int(trace_cfg.get("retrieval_top_k", 3)),
         }
         self.tracer = RuntimeTracer(enabled=self.trace_defaults["enabled"])
         self.neural_scorer = None
@@ -264,6 +284,28 @@ class CausalJointLKService:
                 "light_injury_count": selected.meta.get("light_injury_count", 0),
             }
 
+        fact_basis = None
+        retrieval_hits: Dict[str, Any] = {}
+        if selected is not None:
+            fact_basis = self.branch_builder.build_fact_basis(
+                branch=selected,
+                nodes=nodes,
+                edges=scored_edges,
+                doc_id=doc_id,
+                query=query or target_text,
+            )
+        if self.standard_retriever is not None and fact_basis:
+            retrieval_top_k = int((self.prior.config.get("standards_retrieval") or {}).get("top_k", 5))
+            query_text = str(query or target_text or fact_basis.get("harm_text") or "")
+            retrieval_responses = self.standard_retriever.multi_route_search(
+                query=query_text,
+                fact_basis=fact_basis,
+                candidate_types=getattr(selected, "basic_type_candidates", []),
+                top_k=retrieval_top_k,
+            )
+            retrieval_hits = self._normalize_retrieval_hits(retrieval_responses)
+            self.tracer.log_retrieval_console(retrieval_hits, top_k=self.trace_defaults["retrieval_top_k"])
+
         decoded = self.gb6441_decoder.decode(
             {
                 "winner_branch": selected.branch_id if selected else None,
@@ -273,6 +315,9 @@ class CausalJointLKService:
                 "module_candidates": selected.basic_type_candidates if selected else [],
                 "severity_signals": severity_signals,
                 "industry_prediction": industry_prediction,
+                "retrieval_hits": retrieval_hits,
+                "fact_basis": fact_basis,
+                "doc_id": doc_id,
             }
         )
         self.tracer.log_stage_console(
@@ -286,6 +331,12 @@ class CausalJointLKService:
                 "industry_code": decoded.industry_code if decoded else None,
                 "decode_confidence": decoded.decode_confidence if decoded else None,
             },
+        )
+        self.tracer.log_final_summary_console(
+            selected_branch=selected,
+            decision=decision,
+            severity_trace=severity_trace,
+            decoded=decoded,
         )
 
         use_trace = self.trace_defaults["enabled"] if trace is None else bool(trace)
@@ -301,11 +352,16 @@ class CausalJointLKService:
             branch_trace = self.tracer.log_branch_decision(branches, decision, top_k=branch_top_k)
             severity_trace_payload = self.tracer.log_severity_fallback(severity_trace, top_k=branch_top_k)
             decode_trace = self.tracer.log_decode(decoded)
+            retrieval_trace = self.tracer.log_retrieval(
+                retrieval_hits,
+                top_k=self.trace_defaults["retrieval_top_k"],
+            )
             trace_payload = {
                 "edge_topk": edge_trace.get("edge_topk", []),
                 "beam_topk": beam_trace.get("beam_topk", []),
                 "branch_ranking": branch_trace.get("branch_ranking", []),
                 "severity_trace": severity_trace_payload.get("severity_trace", {}),
+                "retrieval_trace": retrieval_trace,
                 "decode_trace": decode_trace.get("decode_trace", {}),
             }
             self.tracer.log_edge_scores_console(scored_edges, top_k=edge_top_k)
@@ -356,6 +412,8 @@ class CausalJointLKService:
                 "candidate_node_prior_table": node_prior_rows,
                 "industry_prediction": industry_prediction.meta,
                 "severity_trace": severity_trace,
+                "retrieval_hits": retrieval_hits,
+                "fact_basis": fact_basis,
                 "trace": trace_payload,
             },
         )
@@ -373,6 +431,26 @@ class CausalJointLKService:
             elif edge.evidence_text:
                 evidence_by_edge_id[edge.edge_id].append({"unit_id": None, "content": edge.evidence_text})
         return evidence_by_edge_id
+
+    @staticmethod
+    def _normalize_retrieval_hits(responses: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+        out: Dict[str, List[Dict[str, Any]]] = {}
+        for task, response in (responses or {}).items():
+            hits = []
+            for item in getattr(response, "hits", []) or []:
+                meta = getattr(item, "metadata", {}) or {}
+                hits.append(
+                    {
+                        "label": meta.get("label") or meta.get("name") or getattr(item, "title", ""),
+                        "score": float(getattr(item, "score", 0.0)),
+                        "rule_id": getattr(item, "clause_id", None),
+                        "evidence": str(getattr(item, "text", "") or "")[:200],
+                        "title": getattr(item, "title", ""),
+                        "industry_code": meta.get("industry_code"),
+                    }
+                )
+            out[task] = hits
+        return out
 
     @staticmethod
     def _find_root_like_seeds(nodes: Sequence[CausalNode], edges: Sequence[CausalEdge]) -> List[str]:

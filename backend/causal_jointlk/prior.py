@@ -102,6 +102,16 @@ class CausalPrior:
         c = str(canonical_type or "").strip()
         return mapping.get(c, c or "SourceEvent")
 
+    @staticmethod
+    def normalize_standard_label(label: str) -> str:
+        alias_map = {
+            "中毒窒息": "中毒和窒息",
+            "爆燃": "爆炸",
+            "坠落": "高处坠落",
+        }
+        s = str(label or "").strip()
+        return alias_map.get(s, s)
+
 
 def normalize_name(text: Optional[str]) -> str:
     text = (text or "").strip().lower()

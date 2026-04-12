@@ -6,6 +6,7 @@ import os
 import random
 import re
 import sys
+import importlib
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -138,6 +139,43 @@ def _to_json_safe(value: Any):
             return value.item()
         return value.detach().cpu().tolist()
     return value
+
+def _load_jsonl(path: str) -> List[Dict[str, Any]]:
+    p = Path(path)
+    if not p.exists():
+        return []
+    return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _load_service_factory(factory_path: str):
+    module_name, fn_name = factory_path.split(":", 1)
+    mod = importlib.import_module(module_name)
+    fn = getattr(mod, fn_name)
+    if not callable(fn):
+        raise TypeError(f"service factory is not callable: {factory_path}")
+    return fn
+
+
+def run_runtime_probe(args: argparse.Namespace, epoch: int) -> None:
+    if not args.runtime_probe_jsonl or not args.service_factory:
+        return
+    rows = _load_jsonl(args.runtime_probe_jsonl)[: int(args.probe_limit)]
+    if not rows:
+        return
+    service = _load_service_factory(args.service_factory)()
+    print(f"[JointLK][runtime-probe] epoch={epoch} docs={len(rows)}")
+    for row in rows:
+        service.extract(
+            query=row.get("query"),
+            target_text=row.get("target_text"),
+            target_node_id=row.get("target_node_id"),
+            doc_id=row.get("doc_id"),
+            mode=args.probe_mode,
+            k_hop=int(row.get("k_hop", 2)),
+            top_k=5,
+            persist=False,
+            trace=True,
+        )
 
 def build_collate_fn(
     tokenizer,
@@ -369,6 +407,11 @@ def main() -> None:
     parser.add_argument("--weight_pseudo_pending", type=float, default=0.80)
     parser.add_argument("--include_label_sources", nargs="*", default=None)
     parser.add_argument("--exclude_label_sources", nargs="*", default=None)
+    parser.add_argument("--runtime_probe_jsonl", default="")
+    parser.add_argument("--probe_every", type=int, default=1)
+    parser.add_argument("--probe_limit", type=int, default=2)
+    parser.add_argument("--service_factory", default="")
+    parser.add_argument("--probe_mode", default="jointlk+gate+branch")
 
     args = parser.parse_args()
     raw_train_jsonl = args.train_jsonl
@@ -578,6 +621,8 @@ def main() -> None:
         print("[JointLK][train-epoch]", json.dumps(tracer.log_train_epoch(dev_metrics, epoch=epoch), ensure_ascii=False))
         tracer.log_train_epoch_console(dashboard, epoch=epoch)
         tracer.log_stage_console("training-metrics", dashboard)
+        if args.runtime_probe_jsonl and epoch % int(args.probe_every) == 0:
+            run_runtime_probe(args, epoch)
 
         if current_metric > best_metric:
             best_metric = current_metric

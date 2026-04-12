@@ -124,10 +124,45 @@ class BranchBuilder:
             )
             branch.meta["cycle_flag"] = self._has_cycle(branch.path_nodes, branch.path_edges)
             branch.meta["downstream_enable_flag"] = self._has_downstream_enable_conflict(branch.path_edges)
-            branch.meta.update(self._extract_branch_severity(branch, nodes, evidence_store))
+            branch.meta.update(
+                self._aggregate_severity_signals(branch, node_map=node_map, evidence_store=evidence_store))
+            branch.meta["retrieval_queries"] = self._build_retrieval_queries(branch, node_map=node_map)
 
         branches = sorted(grouped.values(), key=lambda x: x.score, reverse=True)
         return branches
+
+    def build_fact_basis(
+            self,
+            branch: CandidateBranch,
+            nodes: Sequence[CausalNode],
+            edges: Sequence[CausalEdge],
+            doc_id: str | None = None,
+            query: str | None = None,
+    ) -> Dict[str, Any]:
+        node_map = {n.node_id: n for n in nodes}
+        root_texts = [node_map[nid].text for nid in branch.root_nodes if nid in node_map]
+        harm_text = node_map[branch.harm_node].text if branch.harm_node and branch.harm_node in node_map else ""
+        consequence_texts = [node_map[nid].text for nid in branch.consequence_nodes if nid in node_map]
+        evidence_texts = [e.evidence_text for e in branch.path_edges if e.evidence_text]
+        severity = self._aggregate_severity_signals(branch, node_map=node_map, evidence_store=None)
+        retrieval_queries = self._build_retrieval_queries(branch, node_map=node_map)
+
+        return {
+            "doc_id": doc_id,
+            "query": query,
+            "branch_id": branch.branch_id,
+            "root_texts": root_texts,
+            "harm_text": harm_text,
+            "consequence_texts": consequence_texts,
+            "evidence_texts": evidence_texts,
+            "basic_type_candidates": list(branch.basic_type_candidates),
+            "first_cue_hits": list(branch.meta.get("first_cue_hits", [])),
+            "industry_cue_texts": list(branch.industry_cue_texts or []),
+            "site_or_process_terms": list(branch.site_or_process_terms or []),
+            "severity_signals": severity,
+            "retrieval_queries": retrieval_queries,
+            "source_edge_ids": [e.edge_id for e in edges if e.edge_id in set(branch.meta.get("edge_ids") or [])],
+        }
 
     @staticmethod
     def _collect_node_evidence(node_ids: Sequence[str], node_map: Dict[str, CausalNode]) -> List[str]:
@@ -265,18 +300,22 @@ class BranchBuilder:
         low_temporal = [e for e in enable_edges if float(e.p_temporal_before or 0.0) < 0.5]
         return len(low_temporal) / max(len(enable_edges), 1) >= 0.5
 
-    def _extract_branch_severity(
+    def _aggregate_severity_signals(
             self,
             branch: CandidateBranch,
-            nodes: Sequence[CausalNode],
-            evidence_store: Any,
+            node_map: Dict[str, CausalNode],
+            evidence_store: Any = None,
     ) -> Dict[str, float]:
         text_parts: List[str] = [e.evidence_text or "" for e in branch.path_edges]
-        node_map = {n.node_id: n for n in nodes}
         for node_id in branch.path_nodes:
             node = node_map.get(node_id)
             if node is not None:
                 text_parts.append(node.text or "")
+                if isinstance(node.properties, dict):
+                    for key in ("injury", "casualty", "severity", "hazard"):
+                        val = node.properties.get(key)
+                        if val:
+                            text_parts.append(str(val))
         if evidence_store is not None:
             for unit_id in branch.evidence_unit_ids:
                 if not unit_id:
@@ -296,6 +335,21 @@ class BranchBuilder:
             "light_injury_count": light_count,
             "energy_level": energy_level,
             "toxicity_level": toxicity_level,
+        }
+
+    @staticmethod
+    def _build_retrieval_queries(
+            branch: CandidateBranch,
+            node_map: Dict[str, CausalNode],
+    ) -> Dict[str, str]:
+        root_texts = [node_map[nid].text for nid in branch.root_nodes if nid in node_map]
+        harm_text = node_map[branch.harm_node].text if branch.harm_node and branch.harm_node in node_map else ""
+        consequence_texts = [node_map[nid].text for nid in branch.consequence_nodes if nid in node_map]
+        common = "；".join(filter(None, root_texts + [harm_text] + consequence_texts))
+        return {
+            "type_retrieval": f"事故类型判定：{common}".strip("："),
+            "severity_retrieval": f"伤害程度判定：{harm_text}；{'；'.join(consequence_texts)}".strip("；"),
+            "industry_retrieval": f"行业判定：{'；'.join(branch.site_or_process_terms or [])}；{common}".strip("；"),
         }
 
     @staticmethod

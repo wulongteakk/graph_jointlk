@@ -236,6 +236,50 @@ class ConsoleTracer:
     def log_decode_console(self, decoded_result: DecodedAccidentResult) -> None:
         payload = self.log_decode(decoded_result)
         print("[JointLK][decode-trace]", payload.get("decode_trace", {}))
+
+    def log_retrieval(self, retrieval_hits: Dict[str, Any], top_k: int = 3) -> Dict[str, Any]:
+        def _pack(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            out: List[Dict[str, Any]] = []
+            for row in list(rows or [])[:top_k]:
+                out.append(
+                    {
+                        "label": row.get("label"),
+                        "score": round(float(row.get("score", 0.0)), 4),
+                        "rule_id": row.get("rule_id"),
+                        "evidence": str(row.get("evidence", ""))[:120],
+                    }
+                )
+            return out
+
+        return {
+            "type_retrieval_topk": _pack(retrieval_hits.get("type_retrieval", [])),
+            "severity_retrieval_topk": _pack(retrieval_hits.get("severity_retrieval", [])),
+            "industry_retrieval_topk": _pack(retrieval_hits.get("industry_retrieval", [])),
+        }
+
+    def log_retrieval_console(self, retrieval_hits: Dict[str, Any], top_k: int = 3) -> None:
+        payload = self.log_retrieval(retrieval_hits, top_k=top_k)
+        print("[JointLK][retrieval-topk]", payload)
+
+    def log_final_summary_console(self, *, selected_branch: Any, decision: Any, severity_trace: Dict[str, Any], decoded: Any) -> None:
+        print(
+            "[JointLK][result-summary]",
+            {
+                "selected_branch_id": getattr(selected_branch, "branch_id", None),
+                "first_induced_reason": getattr(decision, "reason", None),
+                "severity_triggered": bool((severity_trace or {}).get("triggered", False)),
+                "basic_type": getattr(decoded, "basic_type", None),
+                "injury_code": getattr(decoded, "injury_code", None),
+                "industry_code": getattr(decoded, "industry_code", None),
+                "full_code": "-".join(
+                    [
+                        str(getattr(decoded, "basic_code", "") or ""),
+                        str(getattr(decoded, "injury_code", "") or ""),
+                        str(getattr(decoded, "industry_code", "") or ""),
+                    ]
+                ).strip("-"),
+            },
+        )
 class RuntimeTracer(ConsoleTracer):
     """Runtime tracer with switchable output and unified key aliases."""
 
