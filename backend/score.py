@@ -34,6 +34,7 @@ from google.oauth2.credentials import Credentials
 import os
 import requests
 from datetime import datetime, timezone
+
 from fastapi.middleware.gzip import GZipMiddleware
 import time
 import gc
@@ -613,7 +614,11 @@ async def delete_document_and_entities(uri=Form(),
         result, files_list_size = await asyncio.to_thread(graphDb_data_Access.delete_file_from_graph, filenames,
                                                           source_types, deleteEntities, MERGED_DIR, uri)
         entities_count = result[0]['deletedEntities'] if 'deletedEntities' in result[0] else 0
-        message = f"Deleted {files_list_size} documents with {entities_count} entities from database"
+        outputs_count = result[0]['deletedOutputDirs'] if 'deletedOutputDirs' in result[0] else 0
+        message = (
+            f"Deleted {files_list_size} documents with {entities_count} entities from database, "
+            f"and removed {outputs_count} output directories"
+        )
         josn_obj = {'api_name': 'delete_document_and_entities', 'db_url': uri,
                     'logging_time': formatted_time(datetime.now(timezone.utc))}
         logger.log_struct(josn_obj)

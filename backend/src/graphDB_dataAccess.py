@@ -1,6 +1,9 @@
 import logging
 import os
+import re
+import shutil
 from datetime import datetime
+from pathlib import Path
 from langchain_community.graphs import Neo4jGraph
 from src.shared.common_fn import create_gcs_bucket_folder_name_hashed, delete_uploaded_local_file
 from src.document_sources.gcs_bucket import delete_file_from_gcs
@@ -348,6 +351,46 @@ class graphDBdataAccess:
     def execute_query(self, query, param=None):
         return self.graph.query(query, param)
 
+    @staticmethod
+    def _sanitize_fs_part(value: str) -> str:
+        """
+        Make a safe filesystem path segment.
+        Keep behavior consistent with backend runtime output naming rules.
+        """
+        raw = str(value or "").strip()
+        if not raw:
+            return "unknown"
+        return re.sub(r"[^A-Za-z0-9._-]+", "_", raw)
+
+    def _delete_auto_jointlk_outputs(self, doc_refs: list[dict]) -> int:
+        """
+        Delete auto training output folders for the to-be-deleted documents.
+        It tries both doc_id and fileName keys because historical data may only have fileName.
+        """
+        repo_root = Path(__file__).resolve().parents[2]
+        output_root = os.getenv("AUTO_JOINTLK_TRAIN_OUTPUT_ROOT", "./outputs/auto_jointlk_training")
+        output_root_path = Path(output_root)
+        if not output_root_path.is_absolute():
+            output_root_path = (repo_root / output_root_path).resolve()
+
+        deleted_count = 0
+        seen_dirs = set()
+        for ref in doc_refs:
+            for key in ("doc_id", "fileName"):
+                raw = ref.get(key)
+                if not raw:
+                    continue
+                target_dir = output_root_path / self._sanitize_fs_part(raw)
+                if str(target_dir) in seen_dirs:
+                    continue
+                seen_dirs.add(str(target_dir))
+                if target_dir.exists() and target_dir.is_dir():
+                    shutil.rmtree(target_dir, ignore_errors=True)
+                    deleted_count += 1
+                    logging.info("Deleted auto_jointlk output directory: %s", str(target_dir))
+
+        return deleted_count
+
     def get_current_status_document_node(self, file_name):
         query = """
                 MATCH(d:SourceDocument:Document {fileName : $file_name})
@@ -376,8 +419,21 @@ class graphDBdataAccess:
             else:
                 logging.info(f'Deleted File Path: {merged_file_path} and Deleted File Name : {file_name}')
                 delete_uploaded_local_file(merged_file_path,file_name)
-        query_to_delete_document=""" 
-           MATCH (d:SourceDocument:Document) where d.fileName in $filename_list and d.fileSource in $source_types_list
+        query_doc_refs = """
+                    MATCH (d:SourceDocument:Document)
+                    WHERE d.fileName IN $filename_list AND d.fileSource IN $source_types_list
+                    RETURN d.doc_id AS doc_id, d.fileName AS fileName
+                    """
+        doc_refs = self.execute_query(query_doc_refs,
+                                      {"filename_list": filename_list, "source_types_list": source_types_list})
+        deleted_output_dirs = self._delete_auto_jointlk_outputs(doc_refs or [])
+        if deleted_output_dirs > 0:
+            logging.info("Deleted %s auto_jointlk output directories for files=%s", deleted_output_dirs, filename_list)
+        else:
+            logging.info("No auto_jointlk output directories found for files=%s", filename_list)
+
+        query_to_delete_document = """ 
+            MATCH (d:SourceDocument:Document) where d.fileName in $filename_list and d.fileSource in $source_types_list
             with collect(d) as documents 
             unwind documents as d
             optional match (d)<-[:PART_OF]-(c:Chunk) 
@@ -407,6 +463,9 @@ class graphDBdataAccess:
         else :
             result = self.execute_query(query_to_delete_document, param)
             logging.info(f"Deleting {len(filename_list)} documents = '{filename_list}' from '{source_types_list}' with their entities from database")
+
+        if result:
+            result[0]["deletedOutputDirs"] = deleted_output_dirs
         return result, len(filename_list)
 
     def list_unconnected_nodes(self):
