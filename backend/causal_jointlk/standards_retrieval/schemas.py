@@ -3,7 +3,15 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional, Set
 
-from pydantic import BaseModel, Field, field_validator
+import pydantic
+from pydantic import BaseModel, Field
+
+
+def before_validator(field_name: str):
+    """兼容 pydantic v1/v2 的 before validator 装饰器。"""
+    if hasattr(pydantic, "field_validator"):
+        return pydantic.field_validator(field_name, mode="before")
+    return pydantic.validator(field_name, pre=True)
 
 
 class RetrievalDoc(BaseModel):
@@ -39,7 +47,7 @@ class SearchFilters(BaseModel):
     effective_on: Optional[date] = None
     metadata_contains: Dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("effective_on", mode="before")
+    @before_validator("effective_on")
     @classmethod
     def _parse_effective_on(cls, v: Any) -> Any:
         if v is None or isinstance(v, date):
