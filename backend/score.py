@@ -619,6 +619,10 @@ async def delete_document_and_entities(uri=Form(),
             f"Deleted {files_list_size} documents with {entities_count} entities from database, "
             f"and removed {outputs_count} output directories"
         )
+
+
+
+
         josn_obj = {'api_name': 'delete_document_and_entities', 'db_url': uri,
                     'logging_time': formatted_time(datetime.now(timezone.utc))}
         logger.log_struct(josn_obj)

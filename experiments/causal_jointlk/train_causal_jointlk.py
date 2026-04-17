@@ -339,6 +339,14 @@ def evaluate(
             row["temporal_prob"] = float(t_p)
             row["src_first_prob"] = float(sf_p)
             row["dst_first_prob"] = float(df_p)
+            row["source_layer"] = meta.get("source_layer")
+            row["target_layer"] = meta.get("target_layer")
+            if float(d_p) >= 0.55:
+                row["pred_direction"] = "src_to_dst"
+            elif float(d_p) <= 0.45:
+                row["pred_direction"] = "dst_to_src"
+            else:
+                row["pred_direction"] = "uncertain"
             row["gold_label"] = int(y)
             row["gold_relation_id"] = int(gr)
             row["pred_relation_id"] = int(pr)

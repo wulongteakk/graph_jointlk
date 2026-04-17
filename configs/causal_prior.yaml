@@ -261,6 +261,30 @@ trace:
   top_branches: 5
   retrieval_top_k: 3
 
+final_chain_postprocess:
+  enabled: true
+  prefer_cause_to_effect: true
+  forbid_accident_title_as_middle: true
+  accident_title_patterns:
+    - ".*事故$"
+    - ".*受伤事故$"
+    - ".*高坠事故$"
+    - ".*事故调查报告$"
+    - ".*“?\\d+·\\d+”?一般.*事故$"
+  consequence_keywords:
+    - "死亡"
+    - "遇难"
+    - "受伤"
+    - "重伤"
+    - "轻伤"
+    - "伤亡"
+    - "直接经济损失"
+  preferred_terminal_layers:
+    - "OUTCOME"
+    - "CONSEQUENCE"
+  direction_forward_min: 0.55
+  direction_reverse_max: 0.45
+
 standards_retrieval:
   enabled: true
   rule_library_path: configs/standards/gb6441_2025_rule_library_v2.json

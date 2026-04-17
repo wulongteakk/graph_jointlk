@@ -33,6 +33,7 @@ import subprocess
 import threading
 from pathlib import Path
 from collections import defaultdict,deque
+import yaml
 
 warnings.filterwarnings("ignore")
 load_dotenv()
@@ -756,6 +757,268 @@ def _format_progress_bar(percent: int, width: int = 20) -> str:
     fill = int(round((p / 100.0) * width))
     return "█" * fill + "░" * max(0, width - fill)
 
+def _load_chain_postprocess_cfg() -> dict:
+    default_cfg = {
+        "enabled": True,
+        "prefer_cause_to_effect": True,
+        "forbid_accident_title_as_middle": True,
+        "accident_title_patterns": [
+            ".*事故$",
+            ".*受伤事故$",
+            ".*高坠事故$",
+            ".*事故调查报告$",
+            ".*“?\\d+·\\d+”?一般.*事故$",
+        ],
+        "accident_title_exclude_keywords": ["造成", "死亡", "遇难", "受伤", "重伤", "轻伤", "伤亡", "直接经济损失"],
+        "consequence_keywords": ["死亡", "遇难", "受伤", "重伤", "轻伤", "伤亡", "直接经济损失"],
+        "preferred_terminal_layers": ["OUTCOME", "CONSEQUENCE"],
+        "direction_forward_min": 0.55,
+        "direction_reverse_max": 0.45,
+        "pseudo_dir_label_forward": [1],
+        "pseudo_dir_label_reverse": [0],
+    }
+    prior_path = os.getenv("AUTO_JOINTLK_TRAIN_PRIOR_CONFIG", "configs/causal_prior.yaml")
+    repo_root = Path(__file__).resolve().parents[2]
+    path = _resolve_runtime_path(prior_path, repo_root=repo_root)
+    if not path.exists():
+        return default_cfg
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            payload = yaml.safe_load(f) or {}
+        merged = dict(default_cfg)
+        merged.update(payload.get("final_chain_postprocess") or {})
+        merged["layer_order"] = payload.get("layer_order") or []
+        merged["ctp_allowed_transitions"] = payload.get("ctp_allowed_transitions") or {}
+        merged["accident_layer_mapping"] = payload.get("accident_layer_mapping") or {}
+        return merged
+    except Exception:
+        logging.exception("[JointLK][chain-postprocess] failed to load prior config from %s", str(path))
+        return default_cfg
+
+
+def _is_accident_title_like(text: str, cfg: dict | None = None) -> bool:
+    cfg = cfg or {}
+    value = str(text or "").strip()
+    if not value:
+        return False
+    for kw in (cfg.get("accident_title_exclude_keywords") or []):
+        if kw and kw in value:
+            return False
+    patterns = cfg.get("accident_title_patterns") or []
+    return any(re.search(pattern, value) is not None for pattern in patterns)
+
+
+def _is_consequence_like(text: str, layer: str | None, cfg: dict | None = None) -> bool:
+    cfg = cfg or {}
+    layer_norm = str(layer or "").upper()
+    if layer_norm in {str(x).upper() for x in (cfg.get("preferred_terminal_layers") or [])}:
+        return True
+    value = str(text or "")
+    for kw in (cfg.get("consequence_keywords") or []):
+        if kw and kw in value:
+            return True
+    return False
+
+
+def _layer_rank(layer: str | None, cfg: dict) -> int:
+    order = [str(x).upper() for x in (cfg.get("layer_order") or [])]
+    mapping = {name: idx for idx, name in enumerate(order)}
+    accident_map = {str(k).upper(): str(v).upper() for k, v in (cfg.get("accident_layer_mapping") or {}).items()}
+    raw = str(layer or "").upper()
+    norm = accident_map.get(raw, raw)
+    return mapping.get(norm, 10**6)
+
+
+def _swap_edge_direction(edge: dict) -> dict:
+    swapped = dict(edge)
+    for key in ("node_id", "text", "layer"):
+        s_key = f"source_{key}"
+        t_key = f"target_{key}"
+        swapped[s_key], swapped[t_key] = edge.get(t_key), edge.get(s_key)
+    swapped["swapped"] = not bool(edge.get("swapped"))
+    return swapped
+
+
+def _normalize_edge_direction(edge: dict, mode: str, cfg: dict) -> dict:
+    normalized = dict(edge)
+    normalized.setdefault("swapped", False)
+    normalized["direction_normalized"] = False
+    normalized["direction_reason"] = "unchanged"
+
+    if str(mode) == "trained":
+        dir_prob = float(normalized.get("dir_prob", 0.0) or 0.0)
+        forward_min = float(cfg.get("direction_forward_min", 0.55) or 0.55)
+        reverse_max = float(cfg.get("direction_reverse_max", 0.45) or 0.45)
+        if dir_prob <= reverse_max:
+            normalized = _swap_edge_direction(normalized)
+            normalized["direction_normalized"] = True
+            normalized["direction_reason"] = "dir_prob_reverse"
+            return normalized
+        if dir_prob >= forward_min:
+            normalized["direction_normalized"] = True
+            normalized["direction_reason"] = "dir_prob_forward"
+            return normalized
+
+        src_first = float(normalized.get("src_first_prob", 0.0) or 0.0)
+        dst_first = float(normalized.get("dst_first_prob", 0.0) or 0.0)
+        if dst_first > src_first:
+            normalized = _swap_edge_direction(normalized)
+            normalized["direction_normalized"] = True
+            normalized["direction_reason"] = "dst_first_prob"
+            return normalized
+        if src_first > dst_first:
+            normalized["direction_normalized"] = True
+            normalized["direction_reason"] = "src_first_prob"
+            return normalized
+    else:
+        dir_label = int(normalized.get("dir_label", -1) or -1)
+        if dir_label in {int(x) for x in (cfg.get("pseudo_dir_label_reverse") or [])}:
+            normalized = _swap_edge_direction(normalized)
+            normalized["direction_normalized"] = True
+            normalized["direction_reason"] = "pseudo_dir_label_reverse"
+            return normalized
+        if dir_label in {int(x) for x in (cfg.get("pseudo_dir_label_forward") or [])}:
+            normalized["direction_normalized"] = True
+            normalized["direction_reason"] = "pseudo_dir_label_forward"
+            return normalized
+
+    s_rank = _layer_rank(normalized.get("source_layer"), cfg)
+    t_rank = _layer_rank(normalized.get("target_layer"), cfg)
+    if s_rank > t_rank:
+        normalized = _swap_edge_direction(normalized)
+    normalized["direction_normalized"] = True
+    normalized["direction_reason"] = "layer_order_fallback"
+    return normalized
+
+
+def _edge_layer_transition_ok(edge: dict, cfg: dict) -> bool:
+    transitions = cfg.get("ctp_allowed_transitions") or {}
+    if not transitions:
+        return True
+    source = str(edge.get("source_layer") or "").upper()
+    target = str(edge.get("target_layer") or "").upper()
+    if not source or not target:
+        return True
+    accident_map = {str(k).upper(): str(v).upper() for k, v in (cfg.get("accident_layer_mapping") or {}).items()}
+    source = accident_map.get(source, source)
+    target = accident_map.get(target, target)
+    allowed = [str(x).upper() for x in (transitions.get(source) or [])]
+    if not allowed:
+        return True
+    return target in allowed
+
+
+def _should_stop_expand(node_text: str, node_layer: str | None, cfg: dict) -> bool:
+    if bool(cfg.get("forbid_accident_title_as_middle", True)) and _is_accident_title_like(node_text, cfg):
+        return True
+    return _is_consequence_like(node_text, node_layer, cfg)
+
+
+def _rank_chain_semantics(chain_row: dict, cfg: dict) -> tuple:
+    edges = chain_row.get("edges") or []
+    no_accident_middle = 1 if not chain_row.get("has_accident_title_middle") else 0
+    direction_ok = 1 if all(bool(e.get("direction_normalized")) for e in edges) else 0
+    avg_score = float(chain_row.get("score", 0.0) or 0.0)
+    shorter_better = -int(chain_row.get("length", 0) or 0)
+    terminal_outcome = 1 if chain_row.get("terminal_is_consequence") else 0
+    return no_accident_middle, direction_ok, avg_score, shorter_better, terminal_outcome
+
+
+def _build_chain_candidates_from_edges(edges: list[dict], cfg: dict) -> dict:
+    top_k_edges = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_EDGES", "20"))
+    top_k_chains = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_CHAINS", "8"))
+    max_chain_depth = int(os.getenv("AUTO_JOINTLK_CHAIN_MAX_DEPTH", "4"))
+
+    sorted_edges = sorted(edges, key=lambda x: float(x.get("score", 0.0)), reverse=True)
+    top_edges = sorted_edges[:max(top_k_edges, 0)]
+
+    out_adj = defaultdict(list)
+    in_deg = defaultdict(int)
+    node_meta = {}
+    for e in top_edges:
+        s = str(e.get("source_node_id") or "")
+        t = str(e.get("target_node_id") or "")
+        if not s or not t or s == t:
+            continue
+        out_adj[s].append(e)
+        in_deg[t] += 1
+        in_deg.setdefault(s, 0)
+        node_meta[s] = {"text": e.get("source_text"), "layer": e.get("source_layer")}
+        node_meta[t] = {"text": e.get("target_text"), "layer": e.get("target_layer")}
+
+    roots = [nid for nid, deg in in_deg.items() if deg == 0] or list(out_adj.keys())
+    chains = []
+
+    def _dfs(node_id, path_edges, visited):
+        if path_edges:
+            current = node_meta.get(node_id, {})
+            if _should_stop_expand(current.get("text"), current.get("layer"), cfg):
+                chains.append(list(path_edges))
+                return
+        if len(path_edges) >= max_chain_depth:
+            chains.append(list(path_edges))
+            return
+        next_edges = out_adj.get(node_id, [])
+        if not next_edges:
+            if path_edges:
+                chains.append(list(path_edges))
+            return
+        for e in next_edges:
+            nxt = str(e.get("target_node_id") or "")
+            if not nxt or nxt in visited:
+                continue
+            path_edges.append(e)
+            visited.add(nxt)
+            _dfs(nxt, path_edges, visited)
+            visited.remove(nxt)
+            path_edges.pop()
+
+    for r in roots:
+        _dfs(r, [], {r})
+
+    chain_rows = []
+    for path in chains:
+        if not path:
+            continue
+        node_texts = [str(path[0].get("source_text") or path[0].get("source_node_id") or "")]
+        node_layers = [path[0].get("source_layer")]
+        for x in path:
+            node_texts.append(str(x.get("target_text") or x.get("target_node_id") or ""))
+            node_layers.append(x.get("target_layer"))
+        chain_score = sum(float(x.get("score", 0.0)) for x in path) / max(1, len(path))
+        middle_nodes = node_texts[1:-1] if len(node_texts) > 2 else []
+        has_accident_title_middle = any(_is_accident_title_like(text, cfg) for text in middle_nodes)
+        terminal_is_consequence = _is_consequence_like(node_texts[-1], node_layers[-1], cfg)
+        core_nodes = [
+            text for idx, text in enumerate(node_texts)
+            if idx == 0 or (not _is_accident_title_like(text, cfg) and not _is_consequence_like(text, node_layers[idx], cfg))
+        ]
+        if len(core_nodes) < 2:
+            core_nodes = node_texts[:2] if len(node_texts) >= 2 else node_texts
+        core_chain = " -> ".join(core_nodes)
+        outcome_chain = None
+        if terminal_is_consequence and core_nodes and core_nodes[-1] != node_texts[-1]:
+            outcome_chain = " -> ".join(core_nodes + [node_texts[-1]])
+        raw_chain = " -> ".join(node_texts)
+        chain_rows.append(
+            {
+                "length": len(path),
+                "score": round(chain_score, 4),
+                "chain_text": core_chain or raw_chain,
+                "raw_chain_text": raw_chain,
+                "core_chain": core_chain or raw_chain,
+                "outcome_chain": outcome_chain,
+                "terminal_is_consequence": terminal_is_consequence,
+                "has_accident_title_middle": has_accident_title_middle,
+                "edges": path,
+            }
+        )
+
+    chain_rows.sort(key=lambda row: _rank_chain_semantics(row, cfg), reverse=True)
+    chain_rows = chain_rows[:max(top_k_chains, 0)]
+    final_chain = chain_rows[0] if chain_rows else None
+    return {"top_edges": top_edges, "top_chains": chain_rows, "final_chain": final_chain, "num_chains": len(chain_rows)}
+
 
 def build_causal_chain_from_trained_predictions(
     *,
@@ -776,9 +1039,7 @@ def build_causal_chain_from_trained_predictions(
         }
 
     min_causal_conf = float(os.getenv("AUTO_JOINTLK_CHAIN_MIN_CAUSAL_CONF", "0.55"))
-    top_k_edges = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_EDGES", "20"))
-    top_k_chains = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_CHAINS", "8"))
-    max_chain_depth = int(os.getenv("AUTO_JOINTLK_CHAIN_MAX_DEPTH", "4"))
+    cfg = _load_chain_postprocess_cfg()
 
     rows = _read_jsonl_rows(str(prediction_jsonl))
     unknown_relation_ratio = 0.0
@@ -807,14 +1068,23 @@ def build_causal_chain_from_trained_predictions(
             "doc_id": row.get("doc_id"),
             "source_node_id": row.get("source_node_id"),
             "source_text": row.get("source_text"),
+            "source_layer": row.get("source_layer"),
             "target_node_id": row.get("target_node_id"),
             "target_text": row.get("target_text"),
+            "target_layer": row.get("target_layer"),
             "relation_type": row.get("pred_relation_name") or row.get("relation_type"),
             "causal_conf": conf,
             "enable_prob": float(row.get("enable_prob", 0.0) or 0.0),
             "dir_prob": float(row.get("dir_prob", 0.0) or 0.0),
             "temporal_prob": float(row.get("temporal_prob", 0.0) or 0.0),
+            "src_first_prob": float(row.get("src_first_prob", 0.0) or 0.0),
+            "dst_first_prob": float(row.get("dst_first_prob", 0.0) or 0.0),
         }
+        edge = _normalize_edge_direction(edge, mode="trained", cfg=cfg)
+        if _is_accident_title_like(edge.get("source_text"), cfg):
+            continue
+        if not _edge_layer_transition_ok(edge, cfg):
+            continue
         edge["score"] = conf + 0.05 * edge["enable_prob"] + 0.03 * edge["temporal_prob"]
         causal_edges.append(edge)
     if not causal_edges:
@@ -850,56 +1120,11 @@ def build_causal_chain_from_trained_predictions(
             "prediction_jsonl": prediction_jsonl_str,
         }
 
-    causal_edges.sort(key=lambda x: x["score"], reverse=True)
-    top_edges = causal_edges[:max(top_k_edges, 0)]
-    out_adj = defaultdict(list)
-    in_deg = defaultdict(int)
-    for e in top_edges:
-        s = str(e.get("source_node_id") or "")
-        t = str(e.get("target_node_id") or "")
-        if not s or not t or s == t:
-            continue
-        out_adj[s].append(e)
-        in_deg[t] += 1
-        in_deg.setdefault(s, 0)
-    roots = [nid for nid, deg in in_deg.items() if deg == 0] or list(out_adj.keys())
+    build_result = _build_chain_candidates_from_edges(causal_edges, cfg)
+    top_edges = build_result["top_edges"]
+    chain_rows = build_result["top_chains"]
+    final_chain = build_result["final_chain"]
 
-    chains = []
-
-    def _dfs(node_id, path_edges, visited):
-        if len(path_edges) >= max_chain_depth:
-            chains.append(list(path_edges))
-            return
-        next_edges = out_adj.get(node_id, [])
-        if not next_edges:
-            if path_edges:
-                chains.append(list(path_edges))
-            return
-        for e in next_edges:
-            nxt = str(e.get("target_node_id") or "")
-            if not nxt or nxt in visited:
-                continue
-            path_edges.append(e)
-            visited.add(nxt)
-            _dfs(nxt, path_edges, visited)
-            visited.remove(nxt)
-            path_edges.pop()
-
-    for r in roots:
-        _dfs(r, [], {r})
-
-    chain_rows = []
-    for path in chains:
-        if not path:
-            continue
-        chain_score = sum(float(x.get("score", 0.0)) for x in path) / max(1, len(path))
-        chain_text = " -> ".join([str(path[0].get("source_text") or path[0].get("source_node_id") or "")] + [
-            str(x.get("target_text") or x.get("target_node_id") or "") for x in path
-        ])
-        chain_rows.append({"length": len(path), "score": round(chain_score, 4), "chain_text": chain_text, "edges": path})
-    chain_rows.sort(key=lambda x: (x["length"], x["score"]), reverse=True)
-    chain_rows = chain_rows[:max(top_k_chains, 0)]
-    final_chain = chain_rows[0] if chain_rows else None
     _log_jointlk_stage(
         "causal-chain-trained",
         {
@@ -913,7 +1138,7 @@ def build_causal_chain_from_trained_predictions(
     return {
         "ok": bool(final_chain),
         "num_edges": len(causal_edges),
-        "num_chains": len(chain_rows),
+        "num_chains": build_result["num_chains"],
         "final_chain": final_chain,
         "top_edges": top_edges,
         "top_chains": chain_rows,
@@ -937,9 +1162,7 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
         return {"ok": False, "reason": "missing_train_jsonl", "num_edges": 0, "num_chains": 0}
 
     min_causal_conf = float(os.getenv("AUTO_JOINTLK_CHAIN_MIN_CAUSAL_CONF", "0.55"))
-    top_k_edges = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_EDGES", "20"))
-    top_k_chains = int(os.getenv("AUTO_JOINTLK_CHAIN_TOPK_CHAINS", "8"))
-    max_chain_depth = int(os.getenv("AUTO_JOINTLK_CHAIN_MAX_DEPTH", "4"))
+    cfg = _load_chain_postprocess_cfg()
 
     rows = _read_jsonl_rows(train_jsonl)
     causal_edges = []
@@ -954,8 +1177,10 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
             "doc_id": row.get("doc_id"),
             "source_node_id": row.get("source_node_id"),
             "source_text": row.get("source_text"),
+            "source_layer": row.get("source_layer"),
             "target_node_id": row.get("target_node_id"),
             "target_text": row.get("target_text"),
+            "target_layer": row.get("target_layer"),
             "relation_type": row.get("relation_type"),
             "causal_label": 1,
             "causal_conf": causal_conf,
@@ -966,6 +1191,11 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
             "candidate_type": "relaxed" if support_source == "relaxed" else "hard",
             "support_source": support_source,
         }
+        edge = _normalize_edge_direction(edge, mode="pseudo", cfg=cfg)
+        if _is_accident_title_like(edge.get("source_text"), cfg):
+            continue
+        if not _edge_layer_transition_ok(edge, cfg):
+            continue
         edge["score"] = float(edge["causal_conf"]) + 0.05 * max(edge["enable_label"], 0)
         causal_edges.append(edge)
 
@@ -978,73 +1208,10 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
             "min_causal_conf": min_causal_conf,
         }
 
-    causal_edges.sort(key=lambda x: x["score"], reverse=True)
-    top_edges = causal_edges[:max(top_k_edges, 0)]
-
-    out_adj = defaultdict(list)
-    in_deg = defaultdict(int)
-    for e in top_edges:
-        s = str(e.get("source_node_id") or "")
-        t = str(e.get("target_node_id") or "")
-        if not s or not t or s == t:
-            continue
-        out_adj[s].append(e)
-        in_deg[t] += 1
-        in_deg.setdefault(s, 0)
-
-    roots = [nid for nid, deg in in_deg.items() if deg == 0]
-    if not roots:
-        roots = list(out_adj.keys())
-
-    chains = []
-
-    def _dfs(node_id, path_edges, visited):
-        if len(path_edges) >= max_chain_depth:
-            chains.append(list(path_edges))
-            return
-        next_edges = out_adj.get(node_id, [])
-        if not next_edges:
-            if path_edges:
-                chains.append(list(path_edges))
-            return
-        for e in next_edges:
-            nxt = str(e.get("target_node_id") or "")
-            if not nxt or nxt in visited:
-                continue
-            path_edges.append(e)
-            visited.add(nxt)
-            _dfs(nxt, path_edges, visited)
-            visited.remove(nxt)
-            path_edges.pop()
-
-    for r in roots:
-        _dfs(r, [], {r})
-
-    chain_rows = []
-    for path in chains:
-        if not path:
-            continue
-        chain_score = sum(float(x.get("score", 0.0)) for x in path) / max(1, len(path))
-        chain_text = " -> ".join([str(path[0].get("source_text") or path[0].get("source_node_id") or "")] + [
-            str(x.get("target_text") or x.get("target_node_id") or "") for x in path
-        ])
-        chain_rows.append(
-            {
-                "length": len(path),
-                "score": round(chain_score, 4),
-                "chain_text": chain_text,
-                "edges": path,
-            }
-        )
-    chain_rows.sort(key=lambda x: (x["length"], x["score"]), reverse=True)
-    chain_rows = chain_rows[:max(top_k_chains, 0)]
-    final_chain = None
-    if chain_rows:
-        final_chain = sorted(
-            chain_rows,
-            key=lambda x: (float(x.get("score", 0.0)), int(x.get("length", 0))),
-            reverse=True,
-        )[0]
+    build_result = _build_chain_candidates_from_edges(causal_edges, cfg)
+    top_edges = build_result["top_edges"]
+    chain_rows = build_result["top_chains"]
+    final_chain = build_result["final_chain"]
 
     _log_jointlk_stage(
         "causal-chain-preview",
@@ -1060,7 +1227,7 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
     return {
         "ok": True,
         "num_edges": len(causal_edges),
-        "num_chains": len(chain_rows),
+        "num_chains": build_result["num_chains"],
         "final_chain": final_chain,
         "min_causal_conf": min_causal_conf,
         "top_edges": top_edges,
