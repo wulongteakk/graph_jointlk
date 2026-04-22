@@ -757,6 +757,7 @@ def _format_progress_bar(percent: int, width: int = 20) -> str:
     fill = int(round((p / 100.0) * width))
     return "█" * fill + "░" * max(0, width - fill)
 
+
 def _load_chain_postprocess_cfg() -> dict:
     default_cfg = {
         "enabled": True,
@@ -776,6 +777,8 @@ def _load_chain_postprocess_cfg() -> dict:
         "direction_reverse_max": 0.45,
         "pseudo_dir_label_forward": [1],
         "pseudo_dir_label_reverse": [0],
+        "min_core_chain_nodes": 2,
+        "prefer_non_single_hop": True,
     }
     prior_path = os.getenv("AUTO_JOINTLK_TRAIN_PRIOR_CONFIG", "configs/causal_prior.yaml")
     repo_root = Path(__file__).resolve().parents[2]
@@ -919,9 +922,16 @@ def _rank_chain_semantics(chain_row: dict, cfg: dict) -> tuple:
     no_accident_middle = 1 if not chain_row.get("has_accident_title_middle") else 0
     direction_ok = 1 if all(bool(e.get("direction_normalized")) for e in edges) else 0
     avg_score = float(chain_row.get("score", 0.0) or 0.0)
+    score_bucket = round(avg_score, 3)
+    non_single_hop = 1
+    if bool(cfg.get("prefer_non_single_hop", True)):
+        non_single_hop = 1 if int(chain_row.get("length", 0) or 0) >= 2 else 0
+        if chain_row.get("terminal_is_consequence"):
+            non_single_hop = 1
+    structure_ok = 1 if chain_row.get("structure_ok", True) else 0
     shorter_better = -int(chain_row.get("length", 0) or 0)
     terminal_outcome = 1 if chain_row.get("terminal_is_consequence") else 0
-    return no_accident_middle, direction_ok, avg_score, shorter_better, terminal_outcome
+    return no_accident_middle, direction_ok, structure_ok, non_single_hop, score_bucket, terminal_outcome, shorter_better, avg_score
 
 
 def _build_chain_candidates_from_edges(edges: list[dict], cfg: dict) -> dict:
@@ -999,6 +1009,8 @@ def _build_chain_candidates_from_edges(edges: list[dict], cfg: dict) -> dict:
         outcome_chain = None
         if terminal_is_consequence and core_nodes and core_nodes[-1] != node_texts[-1]:
             outcome_chain = " -> ".join(core_nodes + [node_texts[-1]])
+        min_core_nodes = max(1, int(cfg.get("min_core_chain_nodes", 2) or 2))
+        structure_ok = len(core_nodes) >= min_core_nodes or terminal_is_consequence
         raw_chain = " -> ".join(node_texts)
         chain_rows.append(
             {
@@ -1010,6 +1022,7 @@ def _build_chain_candidates_from_edges(edges: list[dict], cfg: dict) -> dict:
                 "outcome_chain": outcome_chain,
                 "terminal_is_consequence": terminal_is_consequence,
                 "has_accident_title_middle": has_accident_title_middle,
+                "structure_ok": structure_ok,
                 "edges": path,
             }
         )
@@ -1018,7 +1031,6 @@ def _build_chain_candidates_from_edges(edges: list[dict], cfg: dict) -> dict:
     chain_rows = chain_rows[:max(top_k_chains, 0)]
     final_chain = chain_rows[0] if chain_rows else None
     return {"top_edges": top_edges, "top_chains": chain_rows, "final_chain": final_chain, "num_chains": len(chain_rows)}
-
 
 def build_causal_chain_from_trained_predictions(
     *,
