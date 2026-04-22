@@ -1184,6 +1184,8 @@ def build_causal_chain_preview_from_pseudo(*, pseudo_result: dict, file_name: st
         if not (support_mask == 1 and support_label == 1):
             continue
         causal_conf = float(row.get("causal_conf", 0.0) or 0.0)
+        if causal_conf < min_causal_conf:
+            continue
         support_source = str(row.get("support_source") or "hard")
         edge = {
             "doc_id": row.get("doc_id"),

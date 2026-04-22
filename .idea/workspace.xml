@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="因果链消除中间的chunk">
+    <list default="true" id="777b174b-b2bb-43b5-8c24-c358f70f920d" name="更改" comment="因果链消除中间的chunk2.0">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/JointLK" beforeDir="false" afterPath="$PROJECT_DIR$/JointLK" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main.py" afterDir="false" />
@@ -255,14 +255,6 @@
       <workItem from="1753704928935" duration="309000" />
       <workItem from="1753705248627" duration="3199000" />
       <workItem from="1755439688727" duration="17000" />
-    </task>
-    <task id="LOCAL-00026" summary="jointlk导入检查">
-      <option name="closed" value="true" />
-      <created>1774495846577</created>
-      <option name="number" value="00026" />
-      <option name="presentableId" value="LOCAL-00026" />
-      <option name="project" value="LOCAL" />
-      <updated>1774495846577</updated>
     </task>
     <task id="LOCAL-00027" summary="名称修正">
       <option name="closed" value="true" />
@@ -648,7 +640,15 @@
       <option name="project" value="LOCAL" />
       <updated>1776396898706</updated>
     </task>
-    <option name="localTasksCounter" value="75" />
+    <task id="LOCAL-00075" summary="因果链消除中间的chunk2.0">
+      <option name="closed" value="true" />
+      <created>1776828260657</created>
+      <option name="number" value="00075" />
+      <option name="presentableId" value="LOCAL-00075" />
+      <option name="project" value="LOCAL" />
+      <updated>1776828260657</updated>
+    </task>
+    <option name="localTasksCounter" value="76" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -666,7 +666,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="一条龙控制台展示2.0" />
     <MESSAGE value="一条龙控制台展示3.0" />
     <MESSAGE value="一条龙控制台展示4.0" />
     <MESSAGE value="一条龙控制台展示5.0" />
@@ -691,7 +690,8 @@
     <MESSAGE value="检索相关3.0" />
     <MESSAGE value="删文档的同时删对应的outputs" />
     <MESSAGE value="因果链消除中间的chunk" />
-    <option name="LAST_COMMIT_MESSAGE" value="因果链消除中间的chunk" />
+    <MESSAGE value="因果链消除中间的chunk2.0" />
+    <option name="LAST_COMMIT_MESSAGE" value="因果链消除中间的chunk2.0" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
