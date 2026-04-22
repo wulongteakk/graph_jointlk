@@ -20,6 +20,8 @@ from .pseudo_labeler import (
     relation_confidence_from_props,
 )
 from .runtime_trace import RuntimeTracer
+from .prototype_mapper import map_node_to_prototype
+from .corpus_registry import register_doc_package
 from src.evidence_store.sqlite_store import EvidenceStore  # type: ignore
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -281,6 +283,7 @@ def build_pseudo_label_record(
     decision: Any,
     *,
     min_causal_conf: float,
+    accident_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     base = f"{edge.doc_id}|{edge.file_name}|{edge.source_node_id}|{edge.relation_type}|{edge.target_node_id}"
     pseudo_label_id = f"pl_{sha1_text(base)}"
@@ -294,6 +297,23 @@ def build_pseudo_label_record(
     support_positive = strict_causal == 1 or relaxed_positive
     support_label = 1 if support_positive else 0
     support_mask = 1 if (support_positive or hard_negative) else 0
+    source_proto_meta = map_node_to_prototype(
+        edge.source_text,
+        node_layer=edge.source_layer,
+        relation_type=edge.relation_type,
+        evidence_text=decision.evidence_text,
+        file_name=edge.file_name,
+        accident_type=accident_type,
+    )
+    target_proto_meta = map_node_to_prototype(
+        edge.target_text,
+        node_layer=edge.target_layer,
+        relation_type=edge.relation_type,
+        evidence_text=decision.evidence_text,
+        file_name=edge.file_name,
+        accident_type=accident_type,
+    )
+    edge_proto_key = f"{source_proto_meta['node_proto']}->{target_proto_meta['node_proto']}"
     support_source = (
         "hard"
         if strict_causal == 1
@@ -302,6 +322,18 @@ def build_pseudo_label_record(
     return {
         "pseudo_label_id": pseudo_label_id,
         "doc_id": edge.doc_id,
+        "case_id": edge.doc_id,
+        "accident_type": accident_type or "UNKNOWN",
+        "source_proto": source_proto_meta["node_proto"],
+        "target_proto": target_proto_meta["node_proto"],
+        "source_proto_conf": float(source_proto_meta["node_proto_conf"]),
+        "target_proto_conf": float(target_proto_meta["node_proto_conf"]),
+        "edge_proto_key": edge_proto_key,
+        "edge_proto_family": f"{source_proto_meta['node_proto_family']}->{target_proto_meta['node_proto_family']}",
+        "corpus_prior_prob": None,
+        "corpus_prior_confidence": None,
+        "doc_split_group": edge.doc_id,
+        "case_local_edge_id": pseudo_label_id,
         "kg_scope": edge.kg_scope,
         "kg_id": edge.kg_id,
         "file_name": edge.file_name,
@@ -883,7 +915,12 @@ def run_pseudo_label_pipeline_for_doc(
             chunk_distance=chunk_distance,
         )
 
-        row = build_pseudo_label_record(edge, decision, min_causal_conf=min_causal_conf)
+        row = build_pseudo_label_record(
+            edge,
+            decision,
+            min_causal_conf=min_causal_conf,
+            accident_type=os.getenv("AUTO_PSEUDO_LABEL_ACCIDENT_TYPE", "UNKNOWN"),
+        )
         label_rows.append(row)
         for task_field in [
             "silver_edge_causal",
@@ -984,6 +1021,15 @@ def run_pseudo_label_pipeline_for_doc(
             ) if train_jsonl else None,
         },
     )
+    registry_path = os.getenv("AUTO_JOINTLK_CORPUS_REGISTRY", "artifacts/causal_corpus/registry.jsonl")
+    registry_result = register_doc_package(
+        pseudo_result={**manifest, "doc_id": doc_id, "file_name": file_name, "kg_scope": kg_scope, "kg_id": kg_id, "export_dir": str(out_dir)},
+        registry_path=registry_path,
+        accident_type=os.getenv("AUTO_PSEUDO_LABEL_ACCIDENT_TYPE", "UNKNOWN"),
+    )
+    manifest["registered_to_corpus"] = True
+    manifest["corpus_registry_path"] = registry_result.get("registry_path")
+
     if progress_hook is not None:
         progress_hook(
             {

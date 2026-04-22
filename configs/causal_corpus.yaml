@@ -1,0 +1,44 @@
+corpus:
+  enabled: true
+  registry_path: artifacts/causal_corpus/registry.jsonl
+  merged_train_path: artifacts/causal_corpus/corpus_train.jsonl
+  merged_dev_path: artifacts/causal_corpus/corpus_dev.jsonl
+  prototype_prior_path: artifacts/causal_corpus/prototype_causal_prior.json
+
+training:
+  min_docs_for_global_train: 5
+  exclude_current_doc_from_train: true
+  split_by_doc: true
+  dev_doc_ratio: 0.2
+  max_edges_per_doc: 800
+  doc_balanced_sampler: true
+  retrain_every_n_docs: 5
+
+prototype_prior:
+  min_doc_support: 2
+  smoothing_alpha: 1.0
+  smoothing_beta: 3.0
+  manual_label_boost: 2.0
+  pseudo_positive_weight: 0.7
+  hard_negative_weight: 1.0
+
+fusion:
+  use_corpus_prior: true
+  model_logit_weight: 1.0
+  prior_logit_weight: 0.8
+  prior_confidence_floor: 0.2
+
+prototype_mapping:
+  accident_title_proto: ACCIDENT_TITLE_ANCHOR
+  outcome_protos:
+    - INJURY_OUTCOME
+    - DEATH_OUTCOME
+    - ECONOMIC_LOSS_OUTCOME
+  cause_protos:
+    - SAFETY_AWARENESS_WEAK
+    - UNSAFE_OPERATION
+    - PPE_NOT_USED
+    - FALL_PROTECTION_NOT_USED
+    - TRAINING_DEFECT
+    - SUPERVISION_DEFECT
+    - MANAGEMENT_DEFECT

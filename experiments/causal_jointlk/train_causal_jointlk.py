@@ -36,6 +36,7 @@ from experiments.causal_jointlk.metrics import (
 from modeling.causal_jointlk_io import batchify_examples
 from modeling.modeling_causal_jointlk import CausalJointLKModel, compute_training_loss
 from backend.causal_jointlk.runtime_trace import RuntimeTracer
+from backend.causal_jointlk.corpus_registry import build_corpus_train_dev
 
 def resolve_input_path(path_str: str) -> Path:
     raw = str(path_str).strip().strip('"').strip("'")
@@ -387,8 +388,13 @@ def evaluate(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train final causal JointLK model on pseudo/gold edge dataset.")
-    parser.add_argument("--train_jsonl", required=True)
-    parser.add_argument("--dev_jsonl", required=True)
+    parser.add_argument("--train_jsonl", default="")
+    parser.add_argument("--dev_jsonl", default="")
+    parser.add_argument("--train_registry", default="")
+    parser.add_argument("--exclude_doc_id", default="")
+    parser.add_argument("--split_by_doc", action="store_true")
+    parser.add_argument("--dev_doc_ids", nargs="*", default=None)
+    parser.add_argument("--max_edges_per_doc", type=int, default=0)
     parser.add_argument("--prior_config", default="configs/causal_prior.yaml")
     parser.add_argument("--model_name", default="roberta-large")
     parser.add_argument("--output_dir", required=True)
@@ -422,6 +428,23 @@ def main() -> None:
     parser.add_argument("--probe_mode", default="jointlk+gate+branch")
 
     args = parser.parse_args()
+    if args.train_registry:
+        split_result = build_corpus_train_dev(
+            registry_path=args.train_registry,
+            train_out=Path(args.output_dir) / "corpus_train.jsonl",
+            dev_out=Path(args.output_dir) / "corpus_dev.jsonl",
+            exclude_doc_id=(args.exclude_doc_id or None),
+            dev_doc_ids=args.dev_doc_ids,
+            dev_ratio=0.2,
+            max_edges_per_doc=(args.max_edges_per_doc if args.max_edges_per_doc > 0 else None),
+        )
+        args.train_jsonl = split_result["train_jsonl"]
+        args.dev_jsonl = split_result["dev_jsonl"]
+        print(f"[jointlk-train] built corpus split from registry: {split_result}")
+
+    if not args.train_jsonl or not args.dev_jsonl:
+        raise ValueError("train_jsonl/dev_jsonl are required (or provide --train_registry)")
+
     raw_train_jsonl = args.train_jsonl
     raw_dev_jsonl = args.dev_jsonl
     raw_prior_config = args.prior_config
@@ -676,3 +699,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

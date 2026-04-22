@@ -19,6 +19,7 @@ from src.evidence_unit_builder import EvidenceUnitBuilder
 from src.document_sources.web_pages import *
 from src.kg_content import build_kg_context, scope_graph_documents
 from causal_jointlk.pseudo_pipeline import run_pseudo_label_pipeline_for_doc, AutoPseudoPipelineConfig
+from causal_jointlk.corpus_registry import build_corpus_train_dev, read_corpus_stats
 from src.graph_export import generate_gpickle_export,export_jointlk_json_artifacts
 
 import re
@@ -406,6 +407,35 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
         return {"enabled": True, "started": False, "reason": "missing_train_jsonl"}
 
     repo_root = Path(__file__).resolve().parents[2]
+    corpus_mode = _get_bool_env("AUTO_JOINTLK_CORPUS_MODE", False)
+    if corpus_mode:
+        registry_path = os.getenv("AUTO_JOINTLK_CORPUS_REGISTRY", "artifacts/causal_corpus/registry.jsonl")
+        min_docs_for_global = _get_int_env("AUTO_JOINTLK_MIN_CORPUS_DOCS", 5)
+        corpus_stats = read_corpus_stats(registry_path)
+        num_docs = int(corpus_stats.get("num_docs", 0))
+        logging.info("[jointlk-train][corpus] stats=%s", corpus_stats)
+        if num_docs < min_docs_for_global:
+            return {
+                "enabled": True,
+                "started": False,
+                "reason": "insufficient_corpus_docs",
+                "num_docs": num_docs,
+                "min_docs_for_global_train": min_docs_for_global,
+            }
+
+        split_result = build_corpus_train_dev(
+            registry_path=registry_path,
+            train_out=os.getenv("AUTO_JOINTLK_CORPUS_TRAIN_JSONL", "artifacts/causal_corpus/corpus_train.jsonl"),
+            dev_out=os.getenv("AUTO_JOINTLK_CORPUS_DEV_JSONL", "artifacts/causal_corpus/corpus_dev.jsonl"),
+            exclude_doc_id=(doc_id if _get_bool_env("AUTO_JOINTLK_EXCLUDE_CURRENT_DOC_FROM_TRAIN", True) else None),
+            dev_ratio=float(os.getenv("AUTO_JOINTLK_CORPUS_DEV_RATIO", "0.2")),
+            max_edges_per_doc=_get_int_env("AUTO_JOINTLK_CORPUS_MAX_EDGES_PER_DOC", 800),
+        )
+        train_jsonl = split_result.get("train_jsonl")
+        dev_jsonl = split_result.get("dev_jsonl")
+    else:
+        dev_jsonl = os.getenv("AUTO_JOINTLK_TRAIN_DEV_JSONL", str(train_jsonl))
+
     train_jsonl_path = _resolve_runtime_path(train_jsonl, repo_root=repo_root)
     if not train_jsonl_path.exists():
         logging.warning(
@@ -441,7 +471,7 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
     output_dir.mkdir(parents=True, exist_ok=True)
     log_file = output_dir / "train.log"
 
-    dev_jsonl = os.getenv("AUTO_JOINTLK_TRAIN_DEV_JSONL", str(train_jsonl_path))
+    dev_jsonl = str(dev_jsonl)
     dev_jsonl_path = _resolve_runtime_path(dev_jsonl, repo_root=repo_root)
     if not dev_jsonl_path.exists():
         logging.info(
