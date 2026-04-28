@@ -394,6 +394,13 @@ const FileTable = forwardRef<ChildRef, FileTableProps>((props, ref) => {
                       : undefined,
                   // total_pages: item?.total_pages ?? 0,
                   access_token: item?.access_token ?? '',
+                  doc_id: item?.doc_id,
+                  kg_scope: item?.kg_scope,
+                  kg_id: item?.kg_id,
+                  reviewed_accident_type: item?.reviewed_accident_type,
+                  final_causal_chain: item?.final_causal_chain,
+                  annotation_status: item?.annotation_status,
+                  annotation_updated_at: item?.annotation_updated_at,
                 });
               }
             });
@@ -533,8 +540,15 @@ const FileTable = forwardRef<ChildRef, FileTableProps>((props, ref) => {
       status,
       processed_chunk = 0,
       total_chunks,
+      doc_id,
+      kg_scope,
+      kg_id,
+      reviewed_accident_type,
+      final_causal_chain,
+      annotation_status,
+      annotation_updated_at,
     } = file_name;
-    if (fileName && total_chunks) {
+    if (fileName) {
       setFilesData((prevfiles) =>
         prevfiles.map((curfile) => {
           if (curfile.name == fileName) {
@@ -545,7 +559,14 @@ const FileTable = forwardRef<ChildRef, FileTableProps>((props, ref) => {
               relationshipCount: relationshipCount,
               model: model,
               processing: processingTime?.toFixed(2),
-              processingProgress: Math.floor((processed_chunk / total_chunks) * 100),
+              processingProgress: total_chunks ? Math.floor((processed_chunk / total_chunks) * 100) : undefined,
+              doc_id,
+              kg_scope,
+              kg_id,
+              reviewed_accident_type,
+              final_causal_chain,
+              annotation_status,
+              annotation_updated_at,
             };
           }
           return curfile;
@@ -556,8 +577,22 @@ const FileTable = forwardRef<ChildRef, FileTableProps>((props, ref) => {
 
   const updateProgress = (i: statusupdate) => {
     const { file_name } = i;
-    const { fileName, nodeCount = 0, relationshipCount = 0, status, processed_chunk = 0, total_chunks } = file_name;
-    if (fileName && total_chunks) {
+    const {
+      fileName,
+      nodeCount = 0,
+      relationshipCount = 0,
+      status,
+      processed_chunk = 0,
+      total_chunks,
+      doc_id,
+      kg_scope,
+      kg_id,
+      reviewed_accident_type,
+      final_causal_chain,
+      annotation_status,
+      annotation_updated_at,
+    } = file_name;
+    if (fileName) {
       setFilesData((prevfiles) =>
         prevfiles.map((curfile) => {
           if (curfile.name == fileName) {
@@ -566,7 +601,14 @@ const FileTable = forwardRef<ChildRef, FileTableProps>((props, ref) => {
               status: status,
               NodesCount: nodeCount,
               relationshipCount: relationshipCount,
-              processingProgress: Math.floor((processed_chunk / total_chunks) * 100),
+              processingProgress: total_chunks ? Math.floor((processed_chunk / total_chunks) * 100) : undefined,
+              doc_id,
+              kg_scope,
+              kg_id,
+              reviewed_accident_type,
+              final_causal_chain,
+              annotation_status,
+              annotation_updated_at,
             };
           }
           return curfile;

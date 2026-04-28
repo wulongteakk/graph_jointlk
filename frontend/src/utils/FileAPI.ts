@@ -1,6 +1,12 @@
 import { Method } from 'axios';
 import { url } from './Utils';
-import { UserCredentials, ExtractParams, UploadParams } from '../types';
+import {
+  UserCredentials,
+  ExtractParams,
+  UploadParams,
+  ManualChainAnnotationPayload,
+  ManualChainAnnotationResponse,
+} from '../types';
 import { apiCall } from '../services/CommonAPI';
 
 // Upload Call
@@ -118,4 +124,33 @@ export const extractAPI = async (
   }
   const response = await apiCall(urlExtract, method, commonParams, additionalParams);
   return response;
+};
+
+export const submitMainChainAnnotationAPI = async (
+  userCredentials: UserCredentials,
+  payload: ManualChainAnnotationPayload
+): Promise<ManualChainAnnotationResponse> => {
+  const annotationUrl = `${url()}/jointlk/main_chain_annotation`;
+  return apiCall(annotationUrl, 'post', userCredentials, payload);
+};
+
+export const getMainChainAnnotationAPI = async (
+  userCredentials: UserCredentials,
+  docId?: string,
+  fileName?: string,
+  kg_scope?: string,
+  kg_id?: string
+): Promise<ManualChainAnnotationResponse> => {
+  const params = new URLSearchParams({
+    uri: userCredentials.uri,
+    userName: userCredentials.userName,
+    password: btoa(userCredentials.password),
+    database: userCredentials.database,
+  });
+  if (docId) params.append('doc_id', docId);
+  if (fileName) params.append('fileName', fileName);
+  if (kg_scope) params.append('kg_scope', kg_scope);
+  if (kg_id) params.append('kg_id', kg_id);
+  const response = await fetch(`${url()}/jointlk/main_chain_annotation?${params.toString()}`);
+  return response.json();
 };

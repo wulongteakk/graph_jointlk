@@ -352,6 +352,10 @@ const Content: React.FC<ContentProps> = ({
     () => (selectedfileslength ? completedfileNo === 0 : true),
     [selectedfileslength, completedfileNo]
   );
+  const canOpenMainChainAnnotation = useMemo(() => {
+    const selectedRows = childRef.current?.getSelectedRows() ?? [];
+    return selectedRows.length === 1 && selectedRows[0]?.status === 'Completed';
+  }, [childRef.current?.getSelectedRows()]);
 
   // const processingCheck = () => {
   //   const processingFiles = filesData.some((file) => file.status === 'Processing');
@@ -694,6 +698,17 @@ const Content: React.FC<ContentProps> = ({
             </ButtonWithToolTip>
 
             <ButtonWithToolTip
+              text='仅支持单选 1 个已完成文档'
+              placement='top'
+              disabled={!canOpenMainChainAnnotation}
+              label='人工主链标注'
+              onClick={() => setShowGraphConstructionModal(true)}
+              className='mr-0.5 bg-red-600 hover:bg-red-700 text-white'
+            >
+              人工主链标注
+            </ButtonWithToolTip>
+
+            <ButtonWithToolTip
               text={tooltips.showGraph}
               placement='top'
               onClick={handleGraphView}
@@ -763,9 +778,7 @@ const Content: React.FC<ContentProps> = ({
         inspectedName={inspectedName} // 你要展示的文件名
         setGraphViewOpen={setShowGraphConstructionModal} // Modal 关闭时会调用这个
         viewPoint='showGraphView'
-        //           nodeValues={nodesData}
-        //           relationshipValues={relsData}
-        selectedRows={childRef.current?.getSelectedRows()}
+        selectedRows={childRef.current?.getSelectedRows()?.slice(0, 1)}
       />
     </>
   );

@@ -27,7 +27,15 @@ from src.graph_query import get_graph_results
 from src.QA_integration_new import PruningItems
 from src.chunkid_entities import get_entities_from_chunkids
 from src.post_processing import create_fulltext, create_entity_embedding
+
+from causal_jointlk.main_chain_annotation import (
+    build_main_chain_annotation_record,
+    persist_main_chain_artifact,
+    build_gold_chain_rows,
+)
+
 from sse_starlette.sse import EventSourceResponse
+
 import json
 from starlette.middleware.sessions import SessionMiddleware
 from google.oauth2.credentials import Credentials
@@ -591,7 +599,14 @@ async def update_extract_status(request: Request, file_name, url, userName, pass
                                      'total_pages': result[0]['total_pages'],
                                      'fileSize': result[0]['fileSize'],
                                      'processed_chunk': result[0]['processed_chunk'],
-                                     'fileSource': result[0]['fileSource']
+                                     'fileSource': result[0]['fileSource'],
+                                     'doc_id': result[0].get('doc_id'),
+                                     'kg_scope': result[0].get('kg_scope'),
+                                     'kg_id': result[0].get('kg_id'),
+                                     'reviewed_accident_type': result[0].get('reviewed_accident_type'),
+                                     'final_causal_chain': result[0].get('final_causal_chain'),
+                                     'annotation_status': result[0].get('annotation_status'),
+                                     'annotation_updated_at': result[0].get('annotation_updated_at'),
                                      })
             else:
                 status = json.dumps({'fileName': file_name, 'status': 'Failed'})
@@ -662,7 +677,14 @@ async def get_document_status(file_name, url, userName, password, database):
                       'total_pages': result[0]['total_pages'],
                       'fileSize': result[0]['fileSize'],
                       'processed_chunk': result[0]['processed_chunk'],
-                      'fileSource': result[0]['fileSource']
+                      'fileSource': result[0]['fileSource'],
+                      'doc_id': result[0].get('doc_id'),
+                      'kg_scope': result[0].get('kg_scope'),
+                      'kg_id': result[0].get('kg_id'),
+                      'reviewed_accident_type': result[0].get('reviewed_accident_type'),
+                      'final_causal_chain': result[0].get('final_causal_chain'),
+                      'annotation_status': result[0].get('annotation_status'),
+                      'annotation_updated_at': result[0].get('annotation_updated_at'),
                       }
         else:
             status = {'fileName': file_name, 'status': 'Failed'}
@@ -672,6 +694,102 @@ async def get_document_status(file_name, url, userName, password, database):
         error_message = str(e)
         logging.exception(f'{message}:{error_message}')
         return create_api_response('Failed', message=message)
+
+@app.get("/jointlk/main_chain_annotation")
+async def get_main_chain_annotation(
+        uri: str,
+        userName: str,
+        password: str,
+        database: str = None,
+        doc_id: str = None,
+        fileName: str = None,
+        kg_scope: str = None,
+        kg_id: str = None,
+):
+    graph = None
+    try:
+        decoded_password = decode_password(password)
+        graph = create_graph_database_connection(uri, userName, decoded_password, database)
+        graph_db_data_access = graphDBdataAccess(graph)
+        snapshot = graph_db_data_access.get_manual_chain_annotation(
+            doc_id=doc_id,
+            file_name=fileName,
+            kg_scope=kg_scope,
+            kg_id=kg_id,
+        )
+        if not snapshot:
+            return create_api_response("Failed", message="Document not found for annotation lookup")
+        return create_api_response("Success", data=snapshot)
+    except Exception as e:
+        return create_api_response("Failed", message="Unable to query manual main chain annotation", error=str(e))
+    finally:
+        if graph is not None:
+            close_db_connection(graph, "jointlk/main_chain_annotation:get")
+
+
+@app.post("/jointlk/main_chain_annotation")
+async def submit_main_chain_annotation(
+        uri=Form(None),
+        userName=Form(None),
+        password=Form(None),
+        database=Form(None),
+        doc_id=Form(None),
+        fileName=Form(None),
+        kg_scope=Form(None),
+        kg_id=Form(None),
+        accident_type=Form(None),
+        final_causal_chain=Form(None),
+):
+    graph = None
+    try:
+        graph = create_graph_database_connection(uri, userName, password, database)
+        graph_db_data_access = graphDBdataAccess(graph)
+
+        resolved_doc = None
+        if doc_id:
+            rows = graph_db_data_access.execute_query(
+                "MATCH (d:SourceDocument:Document {doc_id: $doc_id}) RETURN d LIMIT 1",
+                {"doc_id": doc_id},
+            )
+            resolved_doc = rows[0]["d"] if rows else None
+        if not resolved_doc and fileName:
+            resolved_doc = graph_db_data_access.resolve_doc_by_file_scope(fileName, kg_scope, kg_id)
+        if not resolved_doc:
+            raise HTTPException(status_code=404, detail="document not found")
+
+        record = build_main_chain_annotation_record(
+            doc_id=resolved_doc.get("doc_id"),
+            file_name=resolved_doc.get("fileName"),
+            kg_scope=resolved_doc.get("kg_scope"),
+            kg_id=resolved_doc.get("kg_id"),
+            accident_type=(accident_type or "").strip(),
+            final_causal_chain=(final_causal_chain or "").strip(),
+            alignment_status="unresolved",
+        )
+        artifact_path = persist_main_chain_artifact(record)
+        gold_rows = build_gold_chain_rows(record)
+
+        graph_db_data_access.save_manual_chain_annotation(
+            doc_id=record["doc_id"],
+            reviewed_accident_type=record["reviewed_accident_type"],
+            final_causal_chain=record["final_causal_chain"],
+            annotation_status="annotated",
+            final_causal_chain_steps_json=json.dumps(record.get("final_causal_chain_steps") or [], ensure_ascii=False),
+            annotation_source="gold_chain",
+        )
+        snapshot = graph_db_data_access.get_manual_chain_annotation(doc_id=record["doc_id"])
+        if snapshot:
+            snapshot["artifact_path"] = artifact_path
+            snapshot["gold_chain_rows"] = gold_rows
+            snapshot["alignment_status"] = "unresolved"
+        return create_api_response("Success", message="main chain annotation saved", data=snapshot)
+    except HTTPException as http_e:
+        return create_api_response("Failed", message=str(http_e.detail))
+    except Exception as e:
+        return create_api_response("Failed", message="Unable to save manual main chain annotation", error=str(e))
+    finally:
+        if graph is not None:
+            close_db_connection(graph, "jointlk/main_chain_annotation:post")
 
 
 @app.post("/cancelled_job")

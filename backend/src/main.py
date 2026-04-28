@@ -1806,11 +1806,17 @@ def processing_source(graph, model, file_name, pages, allowedNodes, allowedRelat
 
         return {
             "fileName": file_name,
+            "doc_id": ctx.doc_id,
+            "kg_scope": ctx.kg_scope,
+            "kg_id": ctx.kg_id,
             "nodeCount": node_count,
             "relationshipCount": rel_count,
             "processingTime": round(processed_time.total_seconds(), 2),
             "status": job_status,
             "model": model,
+            "annotation_status": "unannotated",
+            "reviewed_accident_type": None,
+            "final_causal_chain": None,
             "success_count": 1,
             "pseudo_label_summary": pseudo_result if job_status == "Completed" else None,
             "jointlk_causal_chain_preview": causal_chain_preview if job_status == "Completed" else None,

@@ -47,3 +47,7 @@ class sourceNode:
     processed_chunk: int = None
 
     access_token: str = None
+    annotation_status: str = None
+    reviewed_accident_type: str = None
+    final_causal_chain: str = None
+    annotation_updated_at: datetime = None

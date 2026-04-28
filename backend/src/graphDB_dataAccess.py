@@ -62,7 +62,8 @@ class graphDBdataAccess:
                     d.total_chunks = 0,
                     d.processed_chunk = 0,
                     d.total_pages = $total_pages,
-                    d.access_token = $access_token
+                    d.access_token = $access_token,
+                    d.annotation_status = coalesce(d.annotation_status, 'unannotated')
                 """,
                 {
                     "doc_id": doc_id,
@@ -144,6 +145,14 @@ class graphDBdataAccess:
                 params["is_cancelled"] = obj_source_node.is_cancelled
             if obj_source_node.processed_chunk not in (None, 0):
                 params["processed_chunk"] = obj_source_node.processed_chunk
+            if obj_source_node.annotation_status:
+                params["annotation_status"] = obj_source_node.annotation_status
+            if obj_source_node.reviewed_accident_type is not None:
+                params["reviewed_accident_type"] = obj_source_node.reviewed_accident_type
+            if obj_source_node.final_causal_chain is not None:
+                params["final_causal_chain"] = obj_source_node.final_causal_chain
+            if obj_source_node.annotation_updated_at is not None:
+                params["annotation_updated_at"] = obj_source_node.annotation_updated_at
 
             param = {"props": params}
             query = "MERGE (d:SourceDocument:Document {doc_id: $props.doc_id}) SET d += $props"
@@ -161,7 +170,9 @@ class graphDBdataAccess:
                        d.nodeCount AS nodeCount, d.model as model, d.relationshipCount as relationshipCount,
                        d.total_pages AS total_pages, d.total_chunks AS total_chunks , d.fileSize as fileSize,
                        d.is_cancelled as is_cancelled, d.processed_chunk as processed_chunk, d.fileSource as fileSource,
-                       d.fileName as fileName
+                       d.fileName as fileName, d.doc_id as doc_id, d.kg_scope as kg_scope, d.kg_id as kg_id,
+                       d.reviewed_accident_type as reviewed_accident_type, d.final_causal_chain as final_causal_chain,
+                       d.annotation_status as annotation_status, d.annotation_updated_at as annotation_updated_at
                 """
         param = {"doc_id": doc_id}
         return self.execute_query(query, param)
@@ -400,10 +411,85 @@ class graphDBdataAccess:
                 RETURN d.status AS Status , d.processingTime AS processingTime,
                 d.nodeCount AS nodeCount, d.model as model, d.relationshipCount as relationshipCount,
                 d.total_pages AS total_pages, d.total_chunks AS total_chunks , d.fileSize as fileSize,
-                d.is_cancelled as is_cancelled, d.processed_chunk as processed_chunk, d.fileSource as fileSource
+                d.is_cancelled as is_cancelled, d.processed_chunk as processed_chunk, d.fileSource as fileSource,
+                d.doc_id as doc_id, d.kg_scope as kg_scope, d.kg_id as kg_id,
+                d.reviewed_accident_type as reviewed_accident_type, d.final_causal_chain as final_causal_chain,
+                d.annotation_status as annotation_status, d.annotation_updated_at as annotation_updated_at
                 """
         param = {"file_name" : file_name}
         return self.execute_query(query, param)
+
+    def resolve_doc_by_file_scope(self, file_name: str, kg_scope: str = None, kg_id: str = None):
+        query = """
+                MATCH (d:SourceDocument:Document {fileName: $file_name})
+                WHERE ($kg_scope IS NULL OR d.kg_scope = $kg_scope)
+                  AND ($kg_id IS NULL OR d.kg_id = $kg_id)
+                RETURN d
+                ORDER BY coalesce(d.updatedAt, d.createdAt) DESC
+                LIMIT 1
+                """
+        rows = self.execute_query(query, {"file_name": file_name, "kg_scope": kg_scope, "kg_id": kg_id})
+        return rows[0]["d"] if rows else None
+
+    def get_manual_chain_annotation(
+        self,
+        *,
+        doc_id: str = None,
+        file_name: str = None,
+        kg_scope: str = None,
+        kg_id: str = None,
+    ):
+        target = None
+        if doc_id:
+            rows = self.execute_query("MATCH (d:SourceDocument:Document {doc_id: $doc_id}) RETURN d LIMIT 1", {"doc_id": doc_id})
+            target = rows[0]["d"] if rows else None
+        elif file_name:
+            target = self.resolve_doc_by_file_scope(file_name, kg_scope, kg_id)
+        if not target:
+            return None
+        return {
+            "doc_id": target.get("doc_id"),
+            "fileName": target.get("fileName"),
+            "kg_scope": target.get("kg_scope"),
+            "kg_id": target.get("kg_id"),
+            "annotation_status": target.get("annotation_status", "unannotated"),
+            "reviewed_accident_type": target.get("reviewed_accident_type"),
+            "final_causal_chain": target.get("final_causal_chain"),
+            "annotation_updated_at": target.get("annotation_updated_at"),
+        }
+
+    def save_manual_chain_annotation(
+        self,
+        *,
+        doc_id: str,
+        reviewed_accident_type: str,
+        final_causal_chain: str,
+        annotation_status: str = "annotated",
+        final_causal_chain_steps_json: str = None,
+        annotation_source: str = "manual",
+    ):
+        query = """
+                MATCH (d:SourceDocument:Document {doc_id: $doc_id})
+                SET d.reviewed_accident_type = $reviewed_accident_type,
+                    d.final_causal_chain = $final_causal_chain,
+                    d.annotation_status = $annotation_status,
+                    d.annotation_updated_at = datetime(),
+                    d.final_causal_chain_steps_json = $final_causal_chain_steps_json,
+                    d.annotation_source = $annotation_source
+                RETURN d
+                """
+        rows = self.execute_query(
+            query,
+            {
+                "doc_id": doc_id,
+                "reviewed_accident_type": reviewed_accident_type,
+                "final_causal_chain": final_causal_chain,
+                "annotation_status": annotation_status,
+                "final_causal_chain_steps_json": final_causal_chain_steps_json,
+                "annotation_source": annotation_source,
+            },
+        )
+        return rows[0]["d"] if rows else None
 
     def delete_file_from_graph(self, filenames, source_types, deleteEntities:str, merged_dir:str, uri):
         # filename_list = filenames.split(',')

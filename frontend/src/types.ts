@@ -25,6 +25,11 @@ export interface CustomFileBase extends Partial<globalThis.File> {
   access_token?: string;
   kg_scope?: string;
   kg_id?: string;
+  doc_id?: string;
+  reviewed_accident_type?: string;
+  final_causal_chain?: string;
+  annotation_status?: string;
+  annotation_updated_at?: string;
   checked?: boolean;
 }
 export interface CustomFile extends CustomFileBase {
@@ -81,7 +86,32 @@ export type UploadParams = {
   kg_id?: string;
 } & { [key: string]: any };
 
-export type FormDataParams = ExtractParams | UploadParams;
+export type FormDataParams = ExtractParams | UploadParams | ManualChainAnnotationPayload;
+
+export interface ManualChainAnnotationPayload {
+  doc_id?: string;
+  fileName?: string;
+  kg_scope?: string;
+  kg_id?: string;
+  accident_type: string;
+  final_causal_chain: string;
+}
+
+export interface ManualChainAnnotationResponse {
+  status: string;
+  message?: string;
+  error?: string;
+  data?: {
+    doc_id?: string;
+    fileName?: string;
+    kg_scope?: string;
+    kg_id?: string;
+    annotation_status?: string;
+    reviewed_accident_type?: string;
+    final_causal_chain?: string;
+    annotation_updated_at?: string;
+  };
+}
 
 export interface DropdownProps {
   onSelect: (option: OptionType | null | void) => void;
@@ -136,6 +166,11 @@ export interface SourceNode {
   access_token?: string;
   kg_scope?: string;
   kg_id?: string;
+  doc_id?: string;
+  reviewed_accident_type?: string;
+  final_causal_chain?: string;
+  annotation_status?: string;
+  annotation_updated_at?: string;
 }
 
 export interface SideNavProps {
@@ -315,6 +350,13 @@ export interface fileStatus {
   total_chunks?: number;
   // total_pages?: number;
   processed_chunk?: number;
+  doc_id?: string;
+  kg_scope?: string;
+  kg_id?: string;
+  reviewed_accident_type?: string;
+  final_causal_chain?: string;
+  annotation_status?: string;
+  annotation_updated_at?: string;
 }
 export interface PollingAPI_Response extends Partial<AxiosResponse> {
   data: statusupdate;
@@ -435,6 +477,13 @@ export interface eventResponsetypes {
   fileSize: number;
   processed_chunk?: number;
   fileSource: string;
+  doc_id?: string;
+  kg_scope?: string;
+  kg_id?: string;
+  reviewed_accident_type?: string;
+  final_causal_chain?: string;
+  annotation_status?: string;
+  annotation_updated_at?: string;
 }
 export type Nullable<Type> = Type | null;
 
