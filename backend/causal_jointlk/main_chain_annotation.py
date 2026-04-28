@@ -55,6 +55,49 @@ def persist_main_chain_artifact(record: Dict[str, object]) -> str:
     return str(artifact_path)
 
 
+def align_chain_steps_to_kg(steps: List[str], kg_nodes: Optional[List[Dict[str, object]]] = None) -> List[Dict[str, object]]:
+    kg_nodes = kg_nodes or []
+    node_index = {str((n.get("text") or "")).strip().lower(): n for n in kg_nodes}
+    out = []
+    for idx, step in enumerate(steps):
+        hit = node_index.get(step.strip().lower())
+        out.append({
+            "chain_step_index": idx,
+            "chain_step_text": step,
+            "kg_node_id": (hit or {}).get("node_id"),
+            "match_type": "exact" if hit else "unresolved",
+        })
+    return out
+
+
+def align_chain_steps_to_prototypes(steps: List[str], prototype_alias: Optional[Dict[str, str]] = None) -> List[Dict[str, object]]:
+    prototype_alias = prototype_alias or {}
+    out = []
+    for idx, step in enumerate(steps):
+        proto = prototype_alias.get(step.strip().lower())
+        out.append({
+            "chain_step_index": idx,
+            "chain_step_text": step,
+            "prototype_id": proto,
+            "match_type": "alias" if proto else "unresolved",
+        })
+    return out
+
+
+def align_chain_steps_to_bn_vars(steps: List[str], bn_alias: Optional[Dict[str, str]] = None) -> List[Dict[str, object]]:
+    bn_alias = bn_alias or {}
+    out = []
+    for idx, step in enumerate(steps):
+        bn_var = bn_alias.get(step.strip().lower())
+        out.append({
+            "chain_step_index": idx,
+            "chain_step_text": step,
+            "bn_variable": bn_var,
+            "match_type": "alias" if bn_var else "unresolved",
+        })
+    return out
+
+
 def build_gold_chain_rows(record: Dict[str, object]) -> List[Dict[str, object]]:
     steps = record.get("final_causal_chain_steps") or []
     rows: List[Dict[str, object]] = []
@@ -72,3 +115,33 @@ def build_gold_chain_rows(record: Dict[str, object]) -> List[Dict[str, object]]:
             }
         )
     return rows
+
+
+def build_gold_chain_edge_rows(record: Dict[str, object]) -> List[Dict[str, object]]:
+    steps = record.get("final_causal_chain_steps") or []
+    rows: List[Dict[str, object]] = []
+    for idx in range(max(0, len(steps) - 1)):
+        rows.append({
+            "doc_id": record.get("doc_id"),
+            "file_name": record.get("fileName"),
+            "label_source": "gold_chain",
+            "review_status": "accepted",
+            "accident_type": record.get("reviewed_accident_type"),
+            "chain_id": f"gold::{record.get('doc_id')}",
+            "chain_step_index": idx,
+            "source_text": steps[idx],
+            "target_texbackend/causal_jointlk/chain_posterior.py
+        })
+    return rows
+
+
+def build_chain_benchmark_record(record: Dict[str, object], alignment_score: float) -> Dict[str, object]:
+    return {
+        "doc_id": record.get("doc_id"),
+        "reviewed_accident_type": record.get("reviewed_accident_type"),
+        "chain_text": record.get("final_causal_chain_text"),
+        "chain_steps": record.get("final_causal_chain_steps") or [],
+        "alignment_status": record.get("alignment_status", "unresolved"),
+        "alignment_score": float(max(0.0, min(1.0, alignment_score))),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }

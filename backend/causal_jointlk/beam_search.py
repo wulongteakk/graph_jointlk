@@ -172,11 +172,7 @@ class BeamSearchChainBuilder:
             missing_layers=missing_layers,
             unsupported_edges=unsupported_edges,
         )
-        chain.meta = {
-            "beam_rank_score": score,
-            "step_scores": [float(e.score) for e in edge_path],
-            "step_trace": step_trace,
-            "penalties": {
+        penalty_breakdown = {
                 "hop_penalty": float(penalty_sums.get("hop_penalty", 0.0)),
                 "transition_penalty": float(penalty_sums.get("transition_penalty", 0.0)),
                 "unsupported_penalty": float(penalty_sums.get("unsupported_penalty", 0.0)),
@@ -185,6 +181,19 @@ class BeamSearchChainBuilder:
                 "temporal_penalty": float(penalty_sums.get("temporal_penalty", 0.0)),
                 "missing_layer_penalty": float(self.params.get("missing_layer_penalty", 0.50)) * len(missing_layers),
                 "unsupported_count": len(unsupported_edges),
-            },
+            }
+        raw_chain_energy = float(score)
+        chain.meta = {
+            "beam_rank_score": raw_chain_energy,
+            "F_theta": raw_chain_energy,
+            "chain_id": chain_id,
+            "edge_ids": [edge.edge_id for edge in edge_path],
+            "node_path": list(node_path),
+            "step_scores": [float(e.score) for e in edge_path],
+            "step_trace": step_trace,
+            "penalty_breakdown": penalty_breakdown,
+            "penalties": penalty_breakdown,
+            "missing_layers": list(missing_layers),
+            "raw_chain_energy": raw_chain_energy,
         }
         return chain
