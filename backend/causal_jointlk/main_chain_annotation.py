@@ -130,7 +130,15 @@ def build_gold_chain_edge_rows(record: Dict[str, object]) -> List[Dict[str, obje
             "chain_id": f"gold::{record.get('doc_id')}",
             "chain_step_index": idx,
             "source_text": steps[idx],
-            "target_texbackend/causal_jointlk/chain_posterior.py
+            "target_text": steps[idx + 1],
+            "candidate_relation": "causes",
+            "source_node_id": None,
+            "target_node_id": None,
+            "causal_label": 1,
+            "enable_label": 0,
+            "dir_label": 1,
+            "temp_label": 1,
+            "alignment_status": record.get("alignment_status", "unresolved"),
         })
     return rows
 

@@ -9,6 +9,15 @@ import {
 } from '../types';
 import { apiCall } from '../services/CommonAPI';
 
+const encodeBase64Utf8 = (value: string): string => {
+  const utf8Bytes = new TextEncoder().encode(value);
+  let binary = '';
+  utf8Bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+};
+
 // Upload Call
 export const uploadAPI = async (
   file: Blob,
@@ -141,10 +150,12 @@ export const getMainChainAnnotationAPI = async (
   kg_scope?: string,
   kg_id?: string
 ): Promise<ManualChainAnnotationResponse> => {
+
+  const encodedPassword = encodeBase64Utf8(userCredentials.password);
   const params = new URLSearchParams({
     uri: userCredentials.uri,
     userName: userCredentials.userName,
-    password: btoa(userCredentials.password),
+    password: encodedPassword,
     database: userCredentials.database,
   });
   if (docId) params.append('doc_id', docId);
