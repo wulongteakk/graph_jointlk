@@ -201,6 +201,7 @@ def choose_best_evidence(
         "target_span": None,
         "trigger_hits": [],
     }
+    scored_units: List[Dict[str, Any]] = []
     for unit in evidence_units:
         current = score_edge_support(
             prior=prior,
@@ -210,10 +211,38 @@ def choose_best_evidence(
             evidence_text=unit.get("content"),
             relation_text=relation_text,
         )
+        row = {
+            **current,
+            "unit_id": unit.get("unit_id"),
+            "content": unit.get("content"),
+        }
+        scored_units.append(row)
         if current["support_score"] > best["support_score"]:
             best = {
-                **current,
-                "unit_id": unit.get("unit_id"),
-                "content": unit.get("content"),
+                **row,
             }
+    scored_units = sorted(scored_units, key=lambda x: float(x.get("support_score", 0.0)), reverse=True)
+    top_n = max(1, int((prior.as_evidence_params() or {}).get("top_n", 3)))
+    top_evidence_units = scored_units[:top_n]
+    if top_evidence_units:
+        mean_support = sum(float(x.get("support_score", 0.0)) for x in top_evidence_units) / len(top_evidence_units)
+        best_support = float(top_evidence_units[0].get("support_score", 0.0))
+        conflict_score = max(0.0, min(1.0, best_support - mean_support))
+    else:
+        conflict_score = 0.0
+    best["top_evidence_units"] = top_evidence_units
+    best["support_logit"] = math.log(
+        max(float(best.get("support_score", 1e-6)), 1e-6) / max(1e-6, 1.0 - float(best.get("support_score", 1e-6))))
+    best["conflict_score"] = conflict_score
+    best["alignment_hint"] = {
+        "source_hit": bool(best.get("source_span")),
+        "target_hit": bool(best.get("target_span")),
+        "trigger_count": len(best.get("trigger_hits") or []),
+    }
+    signals = best.get("severity_signals") or {}
+    best["severity_bucket"] = (
+        "high" if float(signals.get("death_count", 0.0)) > 0 or float(
+            signals.get("energy_level", 0.0)) > 0 else "medium" if float(
+            signals.get("serious_injury_count", 0.0)) > 0 else "low"
+    )
     return best

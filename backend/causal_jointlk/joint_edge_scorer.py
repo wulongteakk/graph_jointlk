@@ -213,3 +213,43 @@ class CausalJointLKEdgeScorer:
                 target_node.p_node_first = max(float(target_node.p_node_first or 0.0), float(pdst))
             out.append(edge)
         return out
+
+    @torch.no_grad()
+    def score_edges_with_energy(
+            self,
+            query: Optional[str],
+            nodes: Sequence[CausalNode],
+            edges: Sequence[CausalEdge],
+            evidence_by_edge_id: Dict[str, List[Dict[str, Any]]],
+            doc_title: Optional[str] = None,
+            node_prior_map: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> List[CausalEdge]:
+        scored = self.score(
+            query=query,
+            nodes=nodes,
+            edges=edges,
+            evidence_by_edge_id=evidence_by_edge_id,
+            doc_title=doc_title,
+            node_prior_map=node_prior_map,
+        )
+        for edge in scored:
+            u_causal = self.score_weights["w_causal"] * float(edge.p_causal or 0.0)
+            u_enable = self.score_weights["w_enable"] * float(edge.p_enable or 0.0)
+            u_dir = self.score_weights["w_dir"] * float(edge.p_dir or 0.0)
+            u_temp = self.score_weights["w_temp"] * float(edge.p_temporal_before or 0.0)
+            u_evidence = self.score_weights["w_evidence"] * float(edge.p_evidence or 0.0)
+            u_first = self.score_weights["w_first"] * float(edge.p_node_first or 0.0)
+            u_prior = float((node_prior_map or {}).get(edge.source_id, {}).get("p_node_first_prior", 0.0))
+            edge.meta = dict(edge.meta or {})
+            edge.meta["edge_energy_trace"] = {
+                "u_causal": u_causal,
+                "u_enable": u_enable,
+                "u_dir": u_dir,
+                "u_temp": u_temp,
+                "u_evidence": u_evidence,
+                "u_first": u_first,
+                "u_prior": u_prior,
+                "u_theta": u_causal + u_enable + u_dir + u_temp + u_evidence + u_first + u_prior,
+            }
+        return scored
+

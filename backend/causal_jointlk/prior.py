@@ -86,6 +86,17 @@ class CausalPrior:
     def as_evidence_params(self) -> Dict[str, Any]:
         return dict(self.config.get("evidence_gate") or {})
 
+    def as_ctp_prior_params(self) -> Dict[str, Any]:
+        cfg = self.config.get("bn_soft_prior") or {}
+        return {
+            "lambda_ctp": float(cfg.get("lambda_ctp", 1.0)),
+            "type_specific_transition_bonus": dict(cfg.get("type_specific_transition_bonus") or {}),
+            "forbidden_path_penalty": float(cfg.get("forbidden_path_penalty", 1.0)),
+            "cycle_penalty": float(cfg.get("cycle_penalty", 1.0)),
+            "ctp_allowed_transitions": dict(self.ctp),
+            "layer_order": list(self.layer_order),
+        }
+
     def canonical_layer(self, raw_layer: Optional[str]) -> str:
         layer = str(raw_layer or "UNK").upper()
         return self.accident_layer_mapping.get(layer, layer)
