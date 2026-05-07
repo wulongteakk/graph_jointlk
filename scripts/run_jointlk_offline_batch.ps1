@@ -15,6 +15,30 @@ Param(
 
 $ErrorActionPreference = "Stop"
 
+function Resolve-PathWithBackendFallback {
+    Param(
+        [string]$PathValue,
+        [string]$Label
+    )
+
+    if (Test-Path $PathValue) {
+        return $PathValue
+    }
+
+    $backendCandidate = Join-Path "backend" $PathValue
+    if (Test-Path $backendCandidate) {
+        Write-Host "[WARN] $Label not found at '$PathValue', fallback to '$backendCandidate'"
+        return $backendCandidate
+    }
+
+    return $PathValue
+}
+
+$Registry = Resolve-PathWithBackendFallback -PathValue $Registry -Label "registry"
+$TrainJsonl = Resolve-PathWithBackendFallback -PathValue $TrainJsonl -Label "train_jsonl"
+$DevJsonl = Resolve-PathWithBackendFallback -PathValue $DevJsonl -Label "dev_jsonl"
+$PriorConfig = Resolve-PathWithBackendFallback -PathValue $PriorConfig -Label "prior_config"
+
 Write-Host "[INFO] Registry: $Registry"
 if (!(Test-Path $Registry)) {
     Write-Error "registry not found: $Registry`n请先上传多份报告并确认 pseudo label 已注册到 registry。"
@@ -26,22 +50,28 @@ if ($trainDir) { New-Item -ItemType Directory -Force -Path $trainDir | Out-Null 
 if ($devDir) { New-Item -ItemType Directory -Force -Path $devDir | Out-Null }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-$splitCode = @"
-from backend.causal_jointlk.corpus_registry import build_corpus_train_dev, read_corpus_stats
-reg = r"""$Registry"""
-train_out = r"""$TrainJsonl"""
-dev_out = r"""$DevJsonl"""
-print("[INFO] corpus stats:", read_corpus_stats(reg))
-res = build_corpus_train_dev(
-    registry_path=reg,
-    train_out=train_out,
-    dev_out=dev_out,
-    exclude_doc_id=None,
-    dev_ratio=float($DevRatio),
-    max_edges_per_doc=int($MaxEdgesPerDoc),
+# 避免 here-string 与 Python 三引号在不同 PowerShell 版本中的解析兼容性问题
+$regEscaped = $Registry.Replace('\\', '\\\\').Replace("'", "\\'")
+$trainEscaped = $TrainJsonl.Replace('\\', '\\\\').Replace("'", "\\'")
+$devEscaped = $DevJsonl.Replace('\\', '\\\\').Replace("'", "\\'")
+
+$splitCodeLines = @(
+    "from backend.causal_jointlk.corpus_registry import build_corpus_train_dev, read_corpus_stats",
+    "reg = '$regEscaped'",
+    "train_out = '$trainEscaped'",
+    "dev_out = '$devEscaped'",
+    "print('[INFO] corpus stats:', read_corpus_stats(reg))",
+    "res = build_corpus_train_dev(",
+    "    registry_path=reg,",
+    "    train_out=train_out,",
+    "    dev_out=dev_out,",
+    "    exclude_doc_id=None,",
+    "    dev_ratio=float($DevRatio),",
+    "    max_edges_per_doc=int($MaxEdgesPerDoc),",
+    ")",
+    "print('[INFO] split result:', res)"
 )
-print("[INFO] split result:", res)
-"@
+$splitCode = $splitCodeLines -join "`n"
 
 python -c $splitCode
 
