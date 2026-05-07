@@ -50,31 +50,36 @@ if ($trainDir) { New-Item -ItemType Directory -Force -Path $trainDir | Out-Null 
 if ($devDir) { New-Item -ItemType Directory -Force -Path $devDir | Out-Null }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-# 避免 here-string 与 Python 三引号在不同 PowerShell 版本中的解析兼容性问题
-$regEscaped = $Registry.Replace('\\', '\\\\').Replace("'", "\\'")
-$trainEscaped = $TrainJsonl.Replace('\\', '\\\\').Replace("'", "\\'")
-$devEscaped = $DevJsonl.Replace('\\', '\\\\').Replace("'", "\\'")
+# 通过临时 .py 文件调用，避免不同 shell/编码下对 here-string 的解析差异
+$splitPyPath = Join-Path $env:TEMP ("jointlk_split_" + [guid]::NewGuid().ToString("N") + ".py")
 
-$splitCodeTemplate = @"
+@"
 from backend.causal_jointlk.corpus_registry import build_corpus_train_dev, read_corpus_stats
-reg = '{0}'
-train_out = '{1}'
-dev_out = '{2}'
+
+reg = r'''$Registry'''
+train_out = r'''$TrainJsonl'''
+dev_out = r'''$DevJsonl'''
+
 print('[INFO] corpus stats:', read_corpus_stats(reg))
 res = build_corpus_train_dev(
     registry_path=reg,
     train_out=train_out,
     dev_out=dev_out,
     exclude_doc_id=None,
-    dev_ratio=float({3}),
-    max_edges_per_doc=int({4}),
+    dev_ratio=float($DevRatio),
+    max_edges_per_doc=int($MaxEdgesPerDoc),
 )
 print('[INFO] split result:', res)
-"@
+"@ | Set-Content -Path $splitPyPath -Encoding UTF8
 
-$splitCode = $splitCodeTemplate -f $regEscaped, $trainEscaped, $devEscaped, $DevRatio, $MaxEdgesPerDoc
-
-python -c $splitCode
+try {
+    python $splitPyPath
+}
+finally {
+    if (Test-Path $splitPyPath) {
+        Remove-Item -Force $splitPyPath
+    }
+}
 
 python experiments/causal_jointlk/train_causal_jointlk.py `
   --train_jsonl "$TrainJsonl" `
