@@ -751,7 +751,12 @@ async def submit_main_chain_annotation(
             raise HTTPException(status_code=400, detail="password must be base64-encoded") from e
 
         graph = create_graph_database_connection(uri, userName, resolved_password, database)
+        normalized_kg_scope = (kg_scope or "").strip() or None
+        normalized_kg_id = (kg_id or "").strip() or None
         graph_db_data_access = graphDBdataAccess(graph)
+
+
+
 
         resolved_doc = None
         if doc_id:
@@ -761,23 +766,28 @@ async def submit_main_chain_annotation(
             )
             resolved_doc = rows[0]["d"] if rows else None
         if not resolved_doc and fileName:
-            resolved_doc = graph_db_data_access.resolve_doc_by_file_scope(fileName, kg_scope, kg_id)
+            resolved_doc = graph_db_data_access.resolve_doc_by_file_scope(fileName, normalized_kg_scope, normalized_kg_id)
         if not resolved_doc:
             raise HTTPException(status_code=404, detail="document not found")
 
         record = build_main_chain_annotation_record(
             doc_id=resolved_doc.get("doc_id"),
             file_name=resolved_doc.get("fileName"),
-            kg_scope=resolved_doc.get("kg_scope"),
-            kg_id=resolved_doc.get("kg_id"),
+            kg_scope=resolved_doc.get("kg_scope") or normalized_kg_scope,
+            kg_id=resolved_doc.get("kg_id") or normalized_kg_id,
             accident_type=(accident_type or "").strip(),
             final_causal_chain=(final_causal_chain or "").strip(),
             alignment_status="unresolved",
         )
-        artifact_path = persist_main_chain_artifact(record)
+        artifact_path = None
+        try:
+            artifact_path = persist_main_chain_artifact(record)
+        except Exception as artifact_e:
+            logging.exception("Failed to persist main chain artifact for doc_id=%s: %s", record.get("doc_id"),
+                              artifact_e)
         gold_rows = build_gold_chain_rows(record)
 
-        graph_db_data_access.save_manual_chain_annotation(
+        saved_doc = graph_db_data_access.save_manual_chain_annotation(
             doc_id=record["doc_id"],
             reviewed_accident_type=record["reviewed_accident_type"],
             final_causal_chain=record["final_causal_chain"],
@@ -785,6 +795,8 @@ async def submit_main_chain_annotation(
             final_causal_chain_steps_json=json.dumps(record.get("final_causal_chain_steps") or [], ensure_ascii=False),
             annotation_source="gold_chain",
         )
+        if not saved_doc:
+            raise HTTPException(status_code=404, detail="document not found while saving annotation")
         snapshot = graph_db_data_access.get_manual_chain_annotation(doc_id=record["doc_id"])
         if snapshot:
             snapshot["artifact_path"] = artifact_path

@@ -1,4 +1,6 @@
+import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -45,15 +47,27 @@ def build_main_chain_annotation_record(
     }
 
 
+
+
 def persist_main_chain_artifact(record: Dict[str, object]) -> str:
     repo_root = Path(__file__).resolve().parents[2]
     output_root = repo_root / "outputs" / "manual_main_chain"
     output_root.mkdir(parents=True, exist_ok=True)
-    safe_doc = str(record.get("doc_id") or "unknown").replace("/", "_")
+    raw_doc_id = str(record.get("doc_id") or "unknown").strip()
+    # Windows 文件名不允许: \ / : * ? " < > |
+    safe_doc = re.sub(r'[\\/:*?"<>|]+', "_", raw_doc_id)
+    safe_doc = re.sub(r"\s+", "_", safe_doc).strip("._")
+    if not safe_doc:
+        safe_doc = "unknown"
+    # 避免超长路径导致写入失败，追加 hash 保持可追踪性
+    doc_hash = hashlib.sha1(raw_doc_id.encode("utf-8")).hexdigest()[:12]
+    max_name_len = 120
+    if len(safe_doc) > max_name_len:
+        safe_doc = safe_doc[:max_name_len].rstrip("._")
+    safe_doc = f"{safe_doc}__{doc_hash}"
     artifact_path = output_root / f"{safe_doc}.json"
     artifact_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
     return str(artifact_path)
-
 
 def align_chain_steps_to_kg(steps: List[str], kg_nodes: Optional[List[Dict[str, object]]] = None) -> List[Dict[str, object]]:
     kg_nodes = kg_nodes or []
