@@ -55,23 +55,24 @@ $regEscaped = $Registry.Replace('\\', '\\\\').Replace("'", "\\'")
 $trainEscaped = $TrainJsonl.Replace('\\', '\\\\').Replace("'", "\\'")
 $devEscaped = $DevJsonl.Replace('\\', '\\\\').Replace("'", "\\'")
 
-$splitCodeLines = @(
-    "from backend.causal_jointlk.corpus_registry import build_corpus_train_dev, read_corpus_stats",
-    "reg = '$regEscaped'",
-    "train_out = '$trainEscaped'",
-    "dev_out = '$devEscaped'",
-    "print('[INFO] corpus stats:', read_corpus_stats(reg))",
-    "res = build_corpus_train_dev(",
-    "    registry_path=reg,",
-    "    train_out=train_out,",
-    "    dev_out=dev_out,",
-    "    exclude_doc_id=None,",
-    "    dev_ratio=float($DevRatio),",
-    "    max_edges_per_doc=int($MaxEdgesPerDoc),",
-    ")",
-    "print('[INFO] split result:', res)"
+$splitCodeTemplate = @"
+from backend.causal_jointlk.corpus_registry import build_corpus_train_dev, read_corpus_stats
+reg = '{0}'
+train_out = '{1}'
+dev_out = '{2}'
+print('[INFO] corpus stats:', read_corpus_stats(reg))
+res = build_corpus_train_dev(
+    registry_path=reg,
+    train_out=train_out,
+    dev_out=dev_out,
+    exclude_doc_id=None,
+    dev_ratio=float({3}),
+    max_edges_per_doc=int({4}),
 )
-$splitCode = $splitCodeLines -join "`n"
+print('[INFO] split result:', res)
+"@
+
+$splitCode = $splitCodeTemplate -f $regEscaped, $trainEscaped, $devEscaped, $DevRatio, $MaxEdgesPerDoc
 
 python -c $splitCode
 
