@@ -26,7 +26,24 @@ if ($trainDir) { New-Item -ItemType Directory -Force -Path $trainDir | Out-Null 
 if ($devDir) { New-Item -ItemType Directory -Force -Path $devDir | Out-Null }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-python -c "from backend.causal_jointlk.corpus_registry import build_corpus_train_dev, read_corpus_stats; reg=r'$Registry'; print('[INFO] corpus stats:', read_corpus_stats(reg)); res=build_corpus_train_dev(registry_path=reg, train_out=r'$TrainJsonl', dev_out=r'$DevJsonl', exclude_doc_id=None, dev_ratio=float($DevRatio), max_edges_per_doc=int($MaxEdgesPerDoc)); print('[INFO] split result:', res)"
+$splitCode = @"
+from backend.causal_jointlk.corpus_registry import build_corpus_train_dev, read_corpus_stats
+reg = r"""$Registry"""
+train_out = r"""$TrainJsonl"""
+dev_out = r"""$DevJsonl"""
+print("[INFO] corpus stats:", read_corpus_stats(reg))
+res = build_corpus_train_dev(
+    registry_path=reg,
+    train_out=train_out,
+    dev_out=dev_out,
+    exclude_doc_id=None,
+    dev_ratio=float($DevRatio),
+    max_edges_per_doc=int($MaxEdgesPerDoc),
+)
+print("[INFO] split result:", res)
+"@
+
+python -c $splitCode
 
 python experiments/causal_jointlk/train_causal_jointlk.py `
   --train_jsonl "$TrainJsonl" `

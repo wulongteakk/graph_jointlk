@@ -201,11 +201,9 @@ Get-Command conda
 如果你希望把**已上传但未人工标注**的文档统一用于 JointLK 训练（离线），可以使用仓库内脚本：
 
 ```bash
-bash scripts/run_jointlk_offline_batch.sh \
-  --registry artifacts/causal_corpus/registry.jsonl \
-  --output outputs/offline_jointlk_batch_$(date +%Y%m%d_%H%M%S) \
-  --epochs 5 \
-  --batch_size 4
+
+
+scripts\run_jointlk_offline_batch.cmd -Registry "artifacts/causal_corpus/registry.jsonl" -Epochs 5 -BatchSize 4
 ```
 
 说明：
@@ -214,10 +212,8 @@ bash scripts/run_jointlk_offline_batch.sh \
 先看“哪些文件会进入批量训练、以及 train/dev 如何划分”，可先执行：
 
 ```bash
-python scripts/inspect_jointlk_corpus_split.py \
-  --registry artifacts/causal_corpus/registry.jsonl \
-  --dev_ratio 0.2 \
-  --max_edges_per_doc 800
+
+python scripts/inspect_jointlk_corpus_split.py --registry artifacts/causal_corpus/registry.jsonl --dev_ratio 0.2 --max_edges_per_doc 800
 ```
 
 该命令会输出：
