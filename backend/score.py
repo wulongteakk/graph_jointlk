@@ -742,7 +742,15 @@ async def submit_main_chain_annotation(
 ):
     graph = None
     try:
-        graph = create_graph_database_connection(uri, userName, password, database)
+        if not password:
+            raise HTTPException(status_code=400, detail="password is required")
+
+        try:
+            resolved_password = decode_password(password)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail="password must be base64-encoded") from e
+
+        graph = create_graph_database_connection(uri, userName, resolved_password, database)
         graph_db_data_access = graphDBdataAccess(graph)
 
         resolved_doc = None

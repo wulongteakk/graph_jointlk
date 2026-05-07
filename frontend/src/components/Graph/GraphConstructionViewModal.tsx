@@ -91,7 +91,7 @@ const GraphConstructionViewModal = ({ open, setGraphViewOpen, selectedRows }: Gr
           />
         </Flex>
       </Dialog.Content>
-      <Dialog.Footer>
+      <Dialog.Actions>
         <Flex justifyContent='end' gap='2'>
           <Button onClick={onClose} disabled={loading}>
             取消
@@ -106,7 +106,7 @@ const GraphConstructionViewModal = ({ open, setGraphViewOpen, selectedRows }: Gr
             提交标注
           </Button>
         </Flex>
-      </Dialog.Footer>
+      </Dialog.Actions>
     </Dialog>
   );
 };

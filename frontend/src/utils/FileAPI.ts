@@ -140,7 +140,11 @@ export const submitMainChainAnnotationAPI = async (
   payload: ManualChainAnnotationPayload
 ): Promise<ManualChainAnnotationResponse> => {
   const annotationUrl = `${url()}/jointlk/main_chain_annotation`;
-  return apiCall(annotationUrl, 'post', userCredentials, payload);
+  const encodedCredentials: UserCredentials = {
+    ...userCredentials,
+    password: encodeBase64Utf8(userCredentials.password),
+  };
+  return apiCall(annotationUrl, 'post', encodedCredentials, payload);
 };
 
 export const getMainChainAnnotationAPI = async (
