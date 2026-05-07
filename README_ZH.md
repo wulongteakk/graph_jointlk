@@ -194,3 +194,42 @@ Get-Command conda
 
 
 
+---
+
+#### 7. JointLK 离线批量训练（针对“全部未标注文档”）
+
+如果你希望把**已上传但未人工标注**的文档统一用于 JointLK 训练（离线），可以使用仓库内脚本：
+
+```bash
+bash scripts/run_jointlk_offline_batch.sh \
+  --registry artifacts/causal_corpus/registry.jsonl \
+  --output outputs/offline_jointlk_batch_$(date +%Y%m%d_%H%M%S) \
+  --epochs 5 \
+  --batch_size 4
+```
+
+说明：
+- `registry.jsonl` 来自每个文档上传后自动 pseudo-label 导出的登记结果；
+
+先看“哪些文件会进入批量训练、以及 train/dev 如何划分”，可先执行：
+
+```bash
+python scripts/inspect_jointlk_corpus_split.py \
+  --registry artifacts/causal_corpus/registry.jsonl \
+  --dev_ratio 0.2 \
+  --max_edges_per_doc 800
+```
+
+该命令会输出：
+- 可用于训练的文档清单（`doc_id/file_name/edges/pos/neg/unresolved`）；
+- 按 `doc_id` 字典序 + `dev_ratio` 计算出的 train/dev 文档划分；
+- 在 `max_edges_per_doc` 限制下的 train/dev 边数量估计。
+
+- 脚本会先聚合全部文档并切分 `corpus_train.jsonl/corpus_dev.jsonl`，再调用 `experiments/causal_jointlk/train_causal_jointlk.py` 训练；
+- 训练产物输出到 `--output` 指定目录，可用于后续离线评估或推理。
+
+如果你希望**仅上传后做知识图谱构建，不触发 JointLK 训练**，可在后端环境变量中设置：
+
+```bash
+AUTO_JOINTLK_TRAIN_AFTER_UPLOAD=false
+```

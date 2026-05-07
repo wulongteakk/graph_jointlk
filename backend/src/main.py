@@ -234,7 +234,16 @@ def maybe_run_auto_pseudo_label_pipeline(graph, *, file_name: str, doc_id: str, 
 
     return result
 def _auto_jointlk_train_enabled() -> bool:
-    return _get_bool_env("AUTO_JOINTLK_TRAIN_AFTER_UPLOAD", True)
+    # 默认关闭“上传即训练”，避免每份报告各自起一个模型训练任务。
+    # 需要时可通过环境变量显式开启：
+    #   AUTO_JOINTLK_TRAIN_AFTER_UPLOAD=true
+    return _get_bool_env("AUTO_JOINTLK_TRAIN_AFTER_UPLOAD", False)
+
+def _allow_single_doc_jointlk_train() -> bool:
+    # 默认禁止“单文档上传后立刻训练”，避免和离线批量训练目标冲突。
+    # 只有在明确需要时才打开：
+    #   AUTO_JOINTLK_ALLOW_SINGLE_DOC_TRAIN=true
+    return _get_bool_env("AUTO_JOINTLK_ALLOW_SINGLE_DOC_TRAIN", False)
 
 def _auto_jointlk_show_progress_bar() -> bool:
     # 默认关闭，避免刷屏；仅在显式配置时展示。
@@ -434,8 +443,18 @@ def maybe_trigger_auto_jointlk_training(*, pseudo_result: dict, file_name: str, 
         train_jsonl = split_result.get("train_jsonl")
         dev_jsonl = split_result.get("dev_jsonl")
     else:
+        if not _allow_single_doc_jointlk_train():
+            logging.info(
+                "[jointlk-train] skipped because single-doc training is disabled. "
+                "Set AUTO_JOINTLK_ALLOW_SINGLE_DOC_TRAIN=true to enable."
+            )
+            return {
+                "enabled": True,
+                "started": False,
+                "reason": "single_doc_training_disabled",
+                "hint": "set AUTO_JOINTLK_ALLOW_SINGLE_DOC_TRAIN=true to enable per-upload training",
+            }
         dev_jsonl = os.getenv("AUTO_JOINTLK_TRAIN_DEV_JSONL", str(train_jsonl))
-
     train_jsonl_path = _resolve_runtime_path(train_jsonl, repo_root=repo_root)
     if not train_jsonl_path.exists():
         logging.warning(
