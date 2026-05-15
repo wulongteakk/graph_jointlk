@@ -706,16 +706,28 @@ async def get_main_chain_annotation(
         kg_scope: str = None,
         kg_id: str = None,
 ):
+    def _normalize_kg_scope_for_lookup(scope: str = None):
+        raw = str(scope or "").strip().lower()
+        if not raw:
+            return None
+        # backend currently persists all docs with kg_scope=shared
+        # while frontend may still send legacy values like inst/instance/bg
+        if raw in {"inst", "instance", "bg", "background", "shared"}:
+            return "shared"
+        return raw
+
     graph = None
     try:
         decoded_password = decode_password(password)
         graph = create_graph_database_connection(uri, userName, decoded_password, database)
         graph_db_data_access = graphDBdataAccess(graph)
+        normalized_kg_scope = _normalize_kg_scope_for_lookup(kg_scope)
+        normalized_kg_id = (kg_id or "").strip() or None
         snapshot = graph_db_data_access.get_manual_chain_annotation(
             doc_id=doc_id,
             file_name=fileName,
-            kg_scope=kg_scope,
-            kg_id=kg_id,
+            kg_scope=normalized_kg_scope,
+            kg_id=normalized_kg_id,
         )
         if not snapshot:
             return create_api_response("Failed", message="Document not found for annotation lookup")
@@ -751,7 +763,7 @@ async def submit_main_chain_annotation(
             raise HTTPException(status_code=400, detail="password must be base64-encoded") from e
 
         graph = create_graph_database_connection(uri, userName, resolved_password, database)
-        normalized_kg_scope = (kg_scope or "").strip() or None
+        normalized_kg_scope = (str(kg_scope or "").strip().lower() in {"inst", "instance", "bg", "background", "shared"} and "shared") or ((kg_scope or "").strip() or None)
         normalized_kg_id = (kg_id or "").strip() or None
         graph_db_data_access = graphDBdataAccess(graph)
 

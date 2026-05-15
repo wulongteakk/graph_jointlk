@@ -267,10 +267,15 @@ def main() -> None:
             label_confidence = None
             matched_pseudo = pseudo_map_exact.get(candidate_key(edge))
 
-            if pair_key(edge.source_node_id, edge.target_node_id) in gold_pair_to_edge_records:
+            gold_hit = pair_key(edge.source_node_id, edge.target_node_id) in gold_pair_to_edge_records
+            if gold_hit:
+                # gold(人工主链)优先：即使同一 pair 存在 pseudo，也不冲突，训练标签以 gold 为准
                 label = 1
                 label_source = "gold_chain"
                 label_confidence = 1.0
+                if matched_pseudo is not None:
+                    review_status = matched_pseudo.review_status
+                    pseudo_label_id = matched_pseudo.pseudo_label_id
             elif matched_pseudo is not None:
                 eff = effective_pseudo_label(matched_pseudo)
                 if eff is None:
@@ -358,8 +363,9 @@ def main() -> None:
                 "gold_relation": gold_relation,
                 "label": int(label),
                 "label_source": label_source,
-                "review_status": review_status,
+                "has_gold_pseudo_overlap": bool(gold_hit and matched_pseudo is not None),
                 "pseudo_label_id": pseudo_label_id,
+                "review_status": review_status,
                 "label_confidence": label_confidence,
                 "evidence_texts": evidence_texts,
                 "evidence_unit_ids": evidence_unit_ids,
@@ -403,3 +409,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
